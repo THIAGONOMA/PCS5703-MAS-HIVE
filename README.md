@@ -680,37 +680,57 @@ PCS5703_MAS/
 | Node.js | 20+ | Dashboard (opcional) |
 | Maven | 3.8+ | Build MASSim (se necessário) |
 
-### 1. Iniciar o Servidor MASSim
+### Guia Rápido — Rodar uma Simulação Completa
+
+Abra **3 terminais** na raiz do projeto e execute na ordem:
+
+**Terminal 1 — Servidor MASSim** (inicia o mundo da simulação):
 
 ```bash
 cd massim_2022/server
-java -jar target/server-2022-1.1.1-jar-with-dependencies.jar \
+java -jar target/server-2022-1.1-jar-with-dependencies.jar \
      -conf ../../conf/TestConfig.json --monitor
 ```
 
-- Aguardar: `Listening on port 12300...`
-- Monitor: http://localhost:8000
+Aguarde aparecer `Listening on port 12300...` antes de prosseguir.
 
-### 2. Iniciar o Sistema HIVE
+**Terminal 2 — Agentes HIVE** (conecta os 15 agentes BDI):
 
 ```bash
 ./gradlew run
 ```
 
-- 15 agentes conectam automaticamente
-- WebSocket dashboard inicia em :8765
-- Logs no console (JaCaMo + Jason `.print()`)
+Os 15 agentes conectam automaticamente ao servidor. Após ~25 segundos a simulação inicia e os agentes começam a explorar, coletar blocos e pontuar.
 
-### 3. Iniciar Dashboard (opcional)
+**Terminal 3 — Dashboard** (opcional, visualização em tempo real):
 
 ```bash
 cd dashboard
-npm install    # primeira vez
+npm install    # apenas na primeira vez
 npm run dev
 ```
 
-- Acessar: http://localhost:5173
-- Conecta automaticamente via `ws://localhost:8765`
+Abra **http://localhost:5173** no navegador para ver o HIVE Command Center com os agentes em ação (2D e 3D).
+
+### Como funciona a pontuação?
+
+1. O servidor MASSim anuncia **tarefas** (ex: "entregue um bloco tipo b0 na goal zone")
+2. Os líderes dos esquadrões fazem **leilão** para decidir quem pega a tarefa
+3. O agente vencedor **navega** até um dispenser, **coleta** o bloco e **leva** até uma goal zone
+4. Ao fazer **submit** na goal zone, o time ganha **+10 pontos** por tarefa
+5. A simulação roda por **800 steps** (~6 minutos) e o score final é o total de pontos
+
+### O que esperar?
+
+| Momento | O que acontece |
+|---------|---------------|
+| 0–25s | Servidor aguarda conexões, agentes conectam |
+| Step 1–50 | Agentes exploram o mapa, descobrem dispensers e goal zones |
+| Step 50–100 | Primeiras tarefas coletadas e submetidas, score começa a subir |
+| Step 100–800 | Ciclo contínuo de coleta e submissão |
+| **Resultado** | **60–100 pontos** (média ~77) nas simulações que completam |
+
+> **Nota:** Cerca de 50% dos runs podem travar entre steps 76–230 por um gargalo de serialização do CArtAgO (ver seção "Limitação Conhecida"). Se travar, pare tudo e reinicie. Quando completa, o score é consistentemente 60–100 pontos.
 
 ### Portas
 
