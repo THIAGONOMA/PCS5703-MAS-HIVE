@@ -37,6 +37,13 @@ Métrica desse track = **submits/score**, não `[OSC]`. **Não é navegação.**
    multas pagas e tasks de alto valor perdidas. Rodar a config oficial do MAPC 2022
    (`massim_2022/server/conf/SampleConfig.json`, 2 times) para realismo competitivo — aí
    aparecem também lacunas de adversário e de múltiplos roles (não cobertas pela config de dev).
+4. **Entender a vida das tasks + justificar o design de leilões.** Antes de otimizar a *escolha*
+   de tasks, entender as regras: como as tasks surgem para os agentes (aparecem para todos? em
+   que janela de steps? — ver `tasks.concurrent`/`iterations`/`maxDuration` na config), quando
+   expiram, e como isso interage com o leilão. Levantado pelo dono (2026-06-17): **por que o
+   projeto usa leilões** (decisão do colega) e **avaliar manter vs remover** o mecanismo. Upstream
+   do item 1 (viés single-block): não dá pra medir/otimizar bem "tasks perdidas" sem entender o
+   ciclo de vida da task.
 
 ## Adaptação ao cenário oficial MAPC 2022 (pré-requisito p/ rodar 2-times oficial)
 
