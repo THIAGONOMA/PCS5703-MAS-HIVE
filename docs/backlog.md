@@ -96,6 +96,10 @@ internal actions) → testável em ms **sem sim**. Hierarquia proposta:
      NORMs, agentes ociosos, blocos coletados vs submetidos, time-to-first-submit, taxa de chegada à
      goal zone). Criar **novas métricas** conforme necessário.
    - **Facilitar adicionar métrica nova** — um ponto único de instrumentação/extração.
+   - **Logs estruturados (NDJSON) para debug.** Persistir eventos estruturados (step, agente, tipo,
+     payload) — estendendo o `dash_log` que já emite JSON ao dashboard — num arquivo por run, em vez
+     de `.print`/INFO ad-hoc. Levantado pelo dono (2026-06-17): facilita debug (a dor de grep ad-hoc
+     do log foi sentida ao validar a Fase A do Track 3) e é o mesmo "ponto único" das métricas.
    - Base possível: o artefato `HiveDashboard` **já conta** submits/conexões/blocos/leilões/falhas
      (BattleStats) — exportar offline + usar o replay do server. Habilita **A/B e regressão de
      comportamento** entre mudanças (foi o que fizemos à mão no sweep do #2).

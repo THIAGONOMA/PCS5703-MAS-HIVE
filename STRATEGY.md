@@ -51,7 +51,9 @@ código não-linear e runs caras/ruidosas.
 Infra que torna a abordagem possível: source-set JUnit (testar a lógica Java sem run), **ponto
 único de instrumentação** (métrica nova barata), export do `BattleStats` e A/B com controle de
 variância. Primeiro entregável: a **atribuição de deadline perdido — movimento vs estratégia**
-(decide qual track de otimização atacar). Saídas estruturadas alimentam §5/§6 do relatório.
+(decide qual track de otimização atacar). Inclui **logs estruturados** (NDJSON por
+step/agente/evento, estendendo o `dash_log` que já existe) no lugar de `.print` ad-hoc — facilita
+debug e alimenta as métricas. Saídas estruturadas alimentam §5/§6 do relatório.
 
 _Por que serve à abordagem:_ é a própria abordagem — medir pra achar a alavanca, validar em
 isolamento, gate por evidência; habilita os demais tracks. A medição *no alvo real* depende do
