@@ -55,6 +55,15 @@ variância. Primeiro entregável: a **atribuição de deadline perdido — movim
 step/agente/evento, estendendo o `dash_log` que já existe) no lugar de `.print` ad-hoc — facilita
 debug e alimenta as métricas. Saídas estruturadas alimentam §5/§6 do relatório.
 
+**Harness de execução & medição:** a skill **`run-hive`** (`.claude/skills/run-hive/`)
+operacionaliza o "quando rodamos" — driver parametrizado por config
+(`run-hive.sh run --conf <config> [--steps N] [--monitor]`) que builda o jar, lança
+servidor+agentes (vencendo a janela de launch) e extrai o **score**, mais `analyzers/` que lêem o
+**replay** (a verdade, não o log ruidoso) por foco — começando pela view geral (adoção de role,
+histograma de ações, `failed_role`, submits). Princípio: **criar/evoluir um analyzer por track**
+conforme a necessidade (navegação, submit, normas), e evoluir o driver sob demanda (sims em
+paralelo, self-play HIVE×HIVE). É onde "rodar e medir" deste track vive.
+
 _Por que serve à abordagem:_ é a própria abordagem — medir pra achar a alavanca, validar em
 isolamento, gate por evidência; habilita os demais tracks. A medição *no alvo real* depende do
 Track 3 (antes disso, mede-se no proxy 40×40).

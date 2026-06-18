@@ -73,7 +73,9 @@ Por padrão o driver roda **sem** monitor (headless: a verdade vem do replay/sco
 
 ## Roadmap / evoluir (lembrar conforme a implementação cresce)
 
-"Tudo se melhora" — capacidades previstas (o dono confirmou que vamos precisar de todas), por custo crescente:
+**Política (dono, 2026-06-18):** evoluir **sob demanda** — implementar cada item abaixo só quando um track de trabalho realmente precisar dele; não antecipar. Manter esta lista para não re-derivar.
+
+"Tudo se melhora" — capacidades previstas (vamos precisar de todas), por custo crescente:
 
 - ✅ **`--monitor`** — assistir ao vivo (feito).
 - ⏳ **Analyzers por foco** — criar irmãos em `analyzers/` conforme o track: `navigation.py` (livelock/stuck/oscilação), `submit_strategy.py` (rotate-loop de submit, solo vs montagem), `norms.py` (multa vs reward). A view geral já existe.
