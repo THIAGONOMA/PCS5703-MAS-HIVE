@@ -274,9 +274,10 @@
 // --- pending_submit: blocked → rotate, alt direction, or switch goal zone ---
 
 +step(N)
-    : pending_submit(TaskName) & my_pos(MX, MY) & not goalZone(0, 0) & not submitted_task(_) & last_move_blocked
-      & attached(_, _)
-    <- -last_move_blocked;
+    : pending_submit(TaskName) & my_pos(MX, MY) & not goalZone(0, 0) & not submitted_task(_)
+      & (last_move_blocked | escape_pending(_, _)) & attached(_, _)
+    <- .abolish(last_move_blocked);
+       .abolish(escape_pending(_, _));
        if (nav_block_count(OldC)) { -nav_block_count(OldC); BC = OldC + 1 }
        else { BC = 1 };
        +nav_block_count(BC);
@@ -294,14 +295,11 @@
        } elif (Mod3 == 0 & BC > 0) {
            action("rotate(cw)")
        } else {
-           .random(R);
-           if (R < 0.25) { Dir = n }
-           elif (R < 0.5) { Dir = e }
-           elif (R < 0.75) { Dir = s }
-           else { Dir = w };
-           .abolish(last_attempted_dir(_));
-           +last_attempted_dir(Dir);
-           .concat("move(", Dir, ")", Act); action(Act)
+           if (has_destination(DGX, DGY)) {
+               !escape_move(MX, MY, DGX, DGY)
+           } else {
+               action("skip")
+           }
        }.
 
 +step(N)
@@ -462,6 +460,11 @@
        +waiting_connect_collector(AsmName);
        .print("[CONNECT] Step ", N, ": Collector connect(", AsmName, ",", AX, ",", AY, ")").
 
+// FIXME Fase D (#2, cross-frame): AsmX,AsmY vem do connect_request no frame do
+// ASSEMBLER; MX,MY e o frame do collector (origens distintas pre-fusao). CDX/CDY
+// abaixo mistura frames -> navegacao ao ponto de connect fica incorreta no oficial.
+// Mesmo problema dos sites ja marcados (communication.asl, squad_leader.asl). A U9
+// (frame compartilhado) resolve; ate la, vale connect so por adjacencia percebida.
 +step(N)
     : pending_connect(AsmName, AsmX, AsmY, TS) & my_pos(MX, MY)
     <- CDX = AsmX - MX; CDY = AsmY - MY;
