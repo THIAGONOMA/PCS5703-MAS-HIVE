@@ -111,9 +111,10 @@
 
 +step(N)
     : my_pos(MX, MY) & not my_active_task(_, _)
-    <- if ((N mod 40) == 0) {
+    <- if ((N mod 10) == 0) {
+           .my_name(Me);
            get_map_stats(V, D, G, R);
-           .print("[NAV] Step ", N, " Pos(", MX, ",", MY, ") Map: vis=", V, " disp=", D, " goal=", G, " role=", R)
+           .print("[NAV] Step ", N, " Agent=", Me, " Pos(", MX, ",", MY, ") Map: vis=", V, " disp=", D, " goal=", G, " role=", R)
        };
        !do_explore(MX, MY).
 
