@@ -79,10 +79,11 @@ cmd_score() {
 cmd_analyze() { python3 "$ANALYZER" "$@"; }
 
 cmd_run() {
-  local conf="$DEFAULT_CONF" steps=""
+  local conf="$DEFAULT_CONF" steps="" monitor=""
   while [ $# -gt 0 ]; do case "$1" in
     --conf) conf="$2"; shift 2;;
     --steps) steps="$2"; shift 2;;
+    --monitor) monitor="--monitor"; shift;;   # monitor web em http://localhost:8000 (humano)
     *) log "arg desconhecido p/ run: $1"; exit 2;;
   esac; done
   [ -f "$conf" ] || { log "config não existe: $conf"; exit 1; }
@@ -96,7 +97,7 @@ cmd_run() {
 
   : > "$SERVER_LOG"; : > "$AGENT_LOG"
   log "lançando servidor…"
-  ( cd "$SERVER_DIR" && exec java -jar "$JAR" -conf "$conf" ) >"$SERVER_LOG" 2>&1 &
+  ( cd "$SERVER_DIR" && exec java -jar "$JAR" -conf "$conf" $monitor ) >"$SERVER_LOG" 2>&1 &
   local spid=$!; echo "$spid" > "$SERVER_PIDF"
 
   log "esperando porta $PORT abrir…"

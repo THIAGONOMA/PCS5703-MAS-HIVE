@@ -54,9 +54,14 @@ A verdade está no replay. `analyzers/` começa com a view **geral**; **adicione
 - `analyzers/replay_analyze.py` — **geral**: o sinal da Fase C (quantos viraram `worker` e quando), `failed_role`/`failed_path`, submits, score casado pelo id do replay.
 - **A fazer conforme a necessidade** (convenção, ainda não criados): `analyzers/navigation.py` (livelock/stuck/oscilação), `analyzers/submit_strategy.py` (rotate-loop de submit, coleta-solo vs montagem), `analyzers/norms.py` (multas vs reward). Cada track de trabalho pode pedir um analyzer próprio — **crie e melhore-os aqui**.
 
-## Run (human path)
+## Run (human path) — assistir ao vivo
 
-Monitor web opcional: lançar o servidor com `--monitor` e abrir `http://localhost:8000/`. Inútil headless; o `run` do driver não usa.
+```bash
+# mesmo run, com o monitor web em http://localhost:8000/ (visualização do grid)
+.claude/skills/run-hive/run-hive.sh run --conf conf/OfficialRolesConfig.json --monitor
+```
+
+Por padrão o driver roda **sem** monitor (headless: a verdade vem do replay/score). `--monitor` é só para um humano assistir — qualquer replay também pode ser revisto depois no replay-viewer do monitor. **Não** rode múltiplas sims na mesma máquina ao mesmo tempo: servidor (12300), eismassim (12300) e `results/`/`replays/` são compartilhados → use **em série**, ou isole porta+workdir por run (não implementado).
 
 ## Gotchas (cicatrizes reais desta sessão)
 
@@ -65,6 +70,15 @@ Monitor web opcional: lançar o servidor com `--monitor` e abrir `http://localho
 - **O log não é confiável; o replay é.** O log dos agentes mistura buffer do gradle + ruído de shutdown (`Socket closed`, `Error receiving json object. Stop receiving.` — isso é o **fim normal**, não crash). Para saber o que aconteceu, **rode o analyzer no replay**.
 - **`gradle run` deixa um daemon Gradle 9.x vivo** (extensão do VSCode) — não confunda com a sim. Identifique a sim por `server-2022-...jar` e `jacamo.infra.JaCaMoLauncher` (o que o `stop` mata).
 - **Java compila mudança de `.java`, mas `.asl` só é exercitado no `gradle run`** (parse em runtime). Erro de parse de `.asl` → agentes não sobem → servidor vazio → score 0.
+
+## Roadmap / evoluir (lembrar conforme a implementação cresce)
+
+"Tudo se melhora" — capacidades previstas (o dono confirmou que vamos precisar de todas), por custo crescente:
+
+- ✅ **`--monitor`** — assistir ao vivo (feito).
+- ⏳ **Analyzers por foco** — criar irmãos em `analyzers/` conforme o track: `navigation.py` (livelock/stuck/oscilação), `submit_strategy.py` (rotate-loop de submit, solo vs montagem), `norms.py` (multa vs reward). A view geral já existe.
+- ⏳ **Sims em paralelo** — hoje só em **série** (porta 12300 + `results/`/`replays/` compartilhados). Para paralelizar: `--port` + eismassim por porta + workdir isolado por run.
+- ⏳ **HIVE vs HIVE (self-play, 2 times — "Brasil x Brasil")** — o MASSim **suporta nativamente** (é o formato do torneio: times A+B). Falta o nosso lado: (a) config 2-times (adaptar `massim_2022/server/conf/SampleConfig.json`, que já tem A+B/`teamsPerMatch:2`); (b) 2º set de agentes do time B — entidades eismassim `agentB*` + um launch JaCaMo do time B (o backlog planeja via worktree "time B: `agentB*`"). Habilita medir adversário/contenção real (track adversário, hoje deferido).
 
 ## Troubleshooting
 
