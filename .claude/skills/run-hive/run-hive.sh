@@ -87,6 +87,9 @@ cmd_run() {
     *) log "arg desconhecido p/ run: $1"; exit 2;;
   esac; done
   [ -f "$conf" ] || { log "config não existe: $conf"; exit 1; }
+  # absoluto: o servidor roda com cwd=SERVER_DIR, então um --conf relativo (ex.: conf/X.json)
+  # seria resolvido errado lá dentro e o servidor não sobe.
+  conf="$(cd "$(dirname "$conf")" && pwd)/$(basename "$conf")"
   ensure_jar
   log "limpando sims antigas (porta $PORT)…"; stop_sim; sleep 1
   log "pré-aquecendo classes (gradle classes) p/ evitar a corrida da janela de launch…"
