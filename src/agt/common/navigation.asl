@@ -128,7 +128,8 @@
 // --- Exploracao: buscar fronteira e mover ---
 
 +!do_explore(MX, MY)
-    <- get_nearest_frontier(MX, MY, FX, FY);
+    <- .my_name(Me);
+       get_nearest_frontier_biased(MX, MY, Me, FX, FY);
        if (FX == MX & FY == MY) {
            if (last_attempted_dir(PrevDir)) {
                if (PrevDir == n) { Dir = e }
