@@ -29,7 +29,7 @@ mas hive {
     // exploration/defense ficam especificados no XML, ainda não instanciados.
     organisation hive_org : src/org/hive_org.xml {
         group ht : hive_team {
-            responsible-for: sch_task
+            responsible-for: sch_task, sch_adopt
             players: connectionA1  squad_leader
                      connectionA2  squad_leader
                      connectionA3  squad_leader
@@ -47,6 +47,7 @@ mas hive {
                      connectionA15 sentinel
         }
         scheme sch_task : task_execution_scheme
+        scheme sch_adopt : adoption_scheme
     }
 
     asl-path: src/agt, src/agt/common
