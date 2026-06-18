@@ -1,0 +1,92 @@
+---
+name: run-hive
+description: Build, launch, drive and score the HIVE MAPC 2022 multi-agent simulation. Use to run/boot/start a sim with a given server config (dev or official roles), measure the score, and analyze a replay (role adoption, actions, stuck, submits). Triggers — "run hive", "boot the sim", "rodar a simulação", "score", "analisar replay", "testar config", "Fase C boot".
+---
+
+# run-hive
+
+HIVE é um time JaCaMo/Jason (MAPC 2022, cenário Agents Assemble III). Rodar = **2 processos**: o **servidor MASSim** (Java) + os **15 agentes BDI** (`gradle run` → `hive.jcm`). É **headless** (não há GUI para screenshot; há um monitor web opcional em :8000). A verdade de um run **não está no log** (buffer/ruído) — está no **replay** (`massim_2022/server/replays/`) e no **score** (`massim_2022/server/results/*.json`).
+
+Tudo é dirigido por um único driver — **`.claude/skills/run-hive/run-hive.sh`** — e uma família de **analyzers** em `.claude/skills/run-hive/analyzers/`. (Paths relativos à raiz do repo.)
+
+> Origem: melhora `~/repos/MAPC/scripts/{start-massim.sh,replay_analyze.py}` (cite & improve) — parametrizado por config, com build automático do jar e extração de score/análise.
+
+## Prerequisites (já presentes neste ambiente)
+
+- **Java 21**, **Maven** (`mvn`), **Python 3**.
+- **Gradle 8.10 local** em `/home/mgrim/tools/gradle-8.10/bin/gradle` (não há `gradlew` funcional; override com `GRADLE_BIN=`).
+- O jar do servidor **não é commitado** — o driver o builda no 1º uso (`mvn -f massim_2022/pom.xml package -DskipTests`).
+
+## Run (agent path) — use isto
+
+```bash
+# build (se preciso) + launch servidor+agentes + espera o fim + score + análise:
+.claude/skills/run-hive/run-hive.sh run --conf conf/OfficialRolesConfig.json
+
+# smoke rápido (sobrescreve os steps da config — ~1-2 min em vez de ~30):
+.claude/skills/run-hive/run-hive.sh run --conf conf/OfficialRolesConfig.json --steps 15
+```
+
+`run` é **bloqueante** (espera o servidor terminar). Um run cheio (300–800 steps) leva **minutos a dezenas de minutos** (gargalo CArtAgO ~1–6 s/step) → lance com **`run_in_background: true`** e **não** redirecione stdout (o driver já escreve `server.log`/`agents.log` em `/tmp/hive-run/`; redirecionar por cima esvazia o arquivo da task — gotcha real).
+
+Configs (passar em `--conf`):
+
+| Config | Roles | Uso |
+|---|---|---|
+| `conf/OfficialRolesConfig.json` | **reais** (default restrito, sem submit) | gate de score / Fase C — sem adoção de role dá **score 0** |
+| `conf/OfficialTestConfig.json` | default permissivo (dev) | dev 70×70, default já pontua |
+| `conf/FastTestConfig.json` | dev | dev rápido (100 steps) |
+| `conf/TestConfig.json` | dev | dev longo (800 steps) |
+
+Subcomandos: `run` · `score` (mostra o `results/*.json` mais recente) · `analyze [replay] [args]` · `stop` (mata servidor+agentes desta máquina — por padrão de jar/launcher, nunca o teu shell).
+
+## Analyzers — escolha/evolua/crie por foco
+
+A verdade está no replay. `analyzers/` começa com a view **geral**; **adicione irmãos focados** conforme o que você depura (nada se cria do zero, tudo se melhora):
+
+```bash
+# view geral: adoção de role (1º step=worker), histograma de ações/resultados, submits, score
+.claude/skills/run-hive/analyzers/replay_analyze.py            # replay mais recente
+.claude/skills/run-hive/analyzers/replay_analyze.py <replay_dir> --agent agentA4
+.claude/skills/run-hive/analyzers/replay_analyze.py --json     # saída assertável
+```
+
+- `analyzers/replay_analyze.py` — **geral**: o sinal da Fase C (quantos viraram `worker` e quando), `failed_role`/`failed_path`, submits, score casado pelo id do replay.
+- **A fazer conforme a necessidade** (convenção, ainda não criados): `analyzers/navigation.py` (livelock/stuck/oscilação), `analyzers/submit_strategy.py` (rotate-loop de submit, coleta-solo vs montagem), `analyzers/norms.py` (multas vs reward). Cada track de trabalho pode pedir um analyzer próprio — **crie e melhore-os aqui**.
+
+## Run (human path) — assistir ao vivo
+
+```bash
+# mesmo run, com o monitor web em http://localhost:8000/ (visualização do grid)
+.claude/skills/run-hive/run-hive.sh run --conf conf/OfficialRolesConfig.json --monitor
+```
+
+Por padrão o driver roda **sem** monitor (headless: a verdade vem do replay/score). `--monitor` é só para um humano assistir — qualquer replay também pode ser revisto depois no replay-viewer do monitor. **Não** rode múltiplas sims na mesma máquina ao mesmo tempo: servidor (12300), eismassim (12300) e `results/`/`replays/` são compartilhados → use **em série**, ou isole porta+workdir por run (não implementado).
+
+## Gotchas (cicatrizes reais desta sessão)
+
+- **`run_in_background` + redirect = log vazio.** Se você roda algo em background E redireciona `> arquivo`, o arquivo de output da task fica 0 byte (a saída foi para o seu redirect). O driver evita isso gerenciando os próprios logs; ao chamá-lo, **não** redirecione.
+- **Sem agentes conectados → servidor roda vazio e sai com score 0.** O `gradle run` precisa subir dentro da janela `launch` (25s) da config. O driver pré-aquece `gradle classes` e só lança os agentes **depois** que a porta 12300 abre, justamente para vencer essa corrida.
+- **O log não é confiável; o replay é.** O log dos agentes mistura buffer do gradle + ruído de shutdown (`Socket closed`, `Error receiving json object. Stop receiving.` — isso é o **fim normal**, não crash). Para saber o que aconteceu, **rode o analyzer no replay**.
+- **`gradle run` deixa um daemon Gradle 9.x vivo** (extensão do VSCode) — não confunda com a sim. Identifique a sim por `server-2022-...jar` e `jacamo.infra.JaCaMoLauncher` (o que o `stop` mata).
+- **Java compila mudança de `.java`, mas `.asl` só é exercitado no `gradle run`** (parse em runtime). Erro de parse de `.asl` → agentes não sobem → servidor vazio → score 0.
+
+## Roadmap / evoluir (lembrar conforme a implementação cresce)
+
+**Política (dono, 2026-06-18):** evoluir **sob demanda** — implementar cada item abaixo só quando um track de trabalho realmente precisar dele; não antecipar. Manter esta lista para não re-derivar.
+
+"Tudo se melhora" — capacidades previstas (vamos precisar de todas), por custo crescente:
+
+- ✅ **`--monitor`** — assistir ao vivo (feito).
+- ⏳ **Analyzers por foco** — criar irmãos em `analyzers/` conforme o track: `navigation.py` (livelock/stuck/oscilação), `submit_strategy.py` (rotate-loop de submit, solo vs montagem), `norms.py` (multa vs reward). A view geral já existe.
+- ⏳ **Sims em paralelo** — hoje só em **série** (porta 12300 + `results/`/`replays/` compartilhados). Para paralelizar: `--port` + eismassim por porta + workdir isolado por run.
+- ⏳ **HIVE vs HIVE (self-play, 2 times — "Brasil x Brasil")** — o MASSim **suporta nativamente** (é o formato do torneio: times A+B). Falta o nosso lado: (a) config 2-times (adaptar `massim_2022/server/conf/SampleConfig.json`, que já tem A+B/`teamsPerMatch:2`); (b) 2º set de agentes do time B — entidades eismassim `agentB*` + um launch JaCaMo do time B (o backlog planeja via worktree "time B: `agentB*`"). Habilita medir adversário/contenção real (track adversário, hoje deferido).
+
+## Troubleshooting
+
+| Sintoma | Causa / fix |
+|---|---|
+| `score 0` no oficial, agentes andam | role-adoption não fechou (rode o analyzer: `ADOÇÃO DE ROLE: x/15`). Sem adotar `worker`, `request`→`failed_role`. |
+| `gradle classes` falha | erro de compilação Java em `src/java` ou `src/env` — corrija antes de bootar. |
+| porta 12300 não abre | sim antiga órfã — `run-hive.sh stop`; ou jar não buildou (`mvn -f massim_2022/pom.xml package -DskipTests`). |
+| analyzer: "nenhum dado de replay" | passou um replay em progresso/vazio; use um `*_A` finalizado ou rode uma sim. |
