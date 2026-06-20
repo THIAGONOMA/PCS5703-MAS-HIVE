@@ -1,27 +1,32 @@
 mas hive {
 
-    // Squad Leaders (1 por squad = 3)
+    // Squad Leaders (1 por squad = 4)
     agent connectionA1  : squad_leader.asl
     agent connectionA2  : squad_leader.asl
     agent connectionA3  : squad_leader.asl
+    agent connectionA16 : squad_leader.asl
 
-    // Collectors (2 por squad = 6)
+    // Collectors (2 por squad = 8)
     agent connectionA4  : collector.asl
     agent connectionA5  : collector.asl
     agent connectionA6  : collector.asl
     agent connectionA7  : collector.asl
     agent connectionA8  : collector.asl
     agent connectionA9  : collector.asl
+    agent connectionA17 : collector.asl
+    agent connectionA18 : collector.asl
 
-    // Assemblers (1 por squad = 3)
+    // Assemblers (1 por squad = 4)
     agent connectionA10 : assembler.asl
     agent connectionA11 : assembler.asl
     agent connectionA12 : assembler.asl
+    agent connectionA19 : assembler.asl
 
-    // Sentinels (3)
+    // Sentinels (4)
     agent connectionA13 : sentinel.asl
     agent connectionA14 : sentinel.asl
     agent connectionA15 : sentinel.asl
+    agent connectionA20 : sentinel.asl
 
     // Organização MOISE+ (U1): carrega hive_org.xml e instancia o time.
     // Os agentes adotam seus roles organizacionais via a lista 'players'.
@@ -33,18 +38,23 @@ mas hive {
             players: connectionA1  squad_leader
                      connectionA2  squad_leader
                      connectionA3  squad_leader
+                     connectionA16 squad_leader
                      connectionA4  collector
                      connectionA5  collector
                      connectionA6  collector
                      connectionA7  collector
                      connectionA8  collector
                      connectionA9  collector
+                     connectionA17 collector
+                     connectionA18 collector
                      connectionA10 assembler
                      connectionA11 assembler
                      connectionA12 assembler
+                     connectionA19 assembler
                      connectionA13 sentinel
                      connectionA14 sentinel
                      connectionA15 sentinel
+                     connectionA20 sentinel
         }
         scheme sch_task : task_execution_scheme
     }

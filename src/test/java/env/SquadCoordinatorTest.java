@@ -27,8 +27,11 @@ class SquadCoordinatorTest {
         assertEquals("collector", sc.squadRole.get("connectionA4"));
         assertEquals("assembler", sc.squadRole.get("connectionA10"));
         assertEquals("sentinel", sc.squadRole.get("connectionA13"));
-        assertEquals(3, sc.squadMembers.size());
+        assertEquals(4, sc.squadMembers.size());
         assertTrue(sc.squadMembers.get("squad1").contains("connectionA1"));
+        assertEquals("squad4", sc.agentSquad.get("connectionA17"));
+        assertEquals("leader", sc.squadRole.get("connectionA16"));
+        assertEquals("sentinel", sc.squadRole.get("connectionA20"));
     }
 
     @Test

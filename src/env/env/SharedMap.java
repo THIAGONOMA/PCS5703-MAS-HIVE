@@ -104,10 +104,33 @@ public class SharedMap extends Artifact {
     }
 
     @OPERATION
+    void remove_role_zone(Object ox, Object oy) {
+        String k = toInt(ox) + "," + toInt(oy);
+        knownRoleZones.remove(k);
+    }
+
+    @OPERATION
     void mark_visited(Object ox, Object oy) {
         String k = key(toInt(ox), toInt(oy));
         visitedCells.add(k);
         obstacles.remove(k);
+    }
+
+    // #49/N2: marca todas as células no raio de visão como visitadas.
+    // Sem isso, só cells com things entram em visitedCells, deixando fronteiras
+    // esparsas e a exploração lenta (agente volta a áreas "desconhecidas" que já viu).
+    @OPERATION
+    void mark_vision_visited(Object ox, Object oy, Object ovision) {
+        int cx = toInt(ox), cy = toInt(oy), vis = toInt(ovision);
+        for (int dx = -vis; dx <= vis; dx++) {
+            for (int dy = -vis; dy <= vis; dy++) {
+                if (Math.abs(dx) + Math.abs(dy) > vis) continue;
+                String k = key(cx + dx, cy + dy);
+                if (!obstacles.containsKey(k)) {
+                    visitedCells.add(k);
+                }
+            }
+        }
     }
 
     @OPERATION
@@ -173,6 +196,30 @@ public class SharedMap extends Artifact {
         resY.set(by);
     }
 
+    // P0 (cenario oficial): role zone mais proxima (custo A*) para o agente ir
+    // adotar 'worker'/'constructor'. Espelha get_nearest_goal_zone. -1 se nenhuma.
+    @OPERATION
+    void get_nearest_role_zone(Object oagX, Object oagY,
+                               OpFeedbackParam<Integer> resX,
+                               OpFeedbackParam<Integer> resY) {
+        int agX = normX(toInt(oagX)), agY = normY(toInt(oagY));
+        int bestDist = Integer.MAX_VALUE;
+        int bx = -1, by = -1;
+        for (String k : knownRoleZones) {
+            String[] parts = k.split(",");
+            int gx = Integer.parseInt(parts[0]);
+            int gy = Integer.parseInt(parts[1]);
+            int pathCost = astarCost(agX, agY, gx, gy);
+            if (pathCost < bestDist) {
+                bestDist = pathCost;
+                bx = gx;
+                by = gy;
+            }
+        }
+        resX.set(bx);
+        resY.set(by);
+    }
+
     @OPERATION
     void get_alternative_goal_zone(Object oagX, Object oagY, Object ocurX, Object ocurY,
                                    OpFeedbackParam<Integer> resX,
@@ -211,7 +258,8 @@ public class SharedMap extends Artifact {
                 int nx = normX(vx + d[0]);
                 int ny = normY(vy + d[1]);
                 String nk = nx + "," + ny;
-                if (!visitedCells.contains(nk) && !seen.contains(nk)) {
+                if (!visitedCells.contains(nk) && !seen.contains(nk)
+                        && !obstacles.containsKey(nk)) {
                     String cellContent = cells.get(nk);
                     if (cellContent == null || !cellContent.startsWith("obstacle")) {
                         result.add(new int[]{nx, ny});
@@ -242,6 +290,54 @@ public class SharedMap extends Artifact {
                 bestDist = dist;
                 bx = f[0];
                 by = f[1];
+            }
+        }
+        resX.set(bx);
+        resY.set(by);
+    }
+
+    // #49/N2: direção de exploração por agente — distribui agentes radialmente.
+    @OPERATION
+    void get_sector_target(Object oAgentName, Object oTotalAgents,
+                           OpFeedbackParam<Integer> resX, OpFeedbackParam<Integer> resY) {
+        String name = oAgentName.toString();
+        int index = Integer.parseInt(name.replaceAll("[^0-9]", ""));
+        int total = Math.max(1, toInt(oTotalAgents));
+        double angle = (2.0 * Math.PI * (index - 1)) / total;
+        int radius = 20;
+        resX.set((int) Math.round(radius * Math.cos(angle)));
+        resY.set((int) Math.round(radius * Math.sin(angle)));
+    }
+
+    // #49/N2: fronteira biased pela direção do setor. Em vez de ir ao frontier mais
+    // próximo (clustering), vai ao que melhor alinha com a direção atribuída ao agente.
+    // Fronteiras são adjacentes a células visitadas → reachable, evita failed_path.
+    @OPERATION
+    void get_directional_frontier(Object oAgX, Object oAgY, Object oDirX, Object oDirY,
+                                  OpFeedbackParam<Integer> resX, OpFeedbackParam<Integer> resY) {
+        int agX = toInt(oAgX), agY = toInt(oAgY);
+        int dirX = toInt(oDirX), dirY = toInt(oDirY);
+
+        int vSize = visitedCells.size();
+        if (cachedFrontiers.isEmpty() || Math.abs(vSize - lastFrontierVisitedSize) >= 3) {
+            rebuildFrontierCache();
+            lastFrontierVisitedSize = vSize;
+        }
+
+        double bestScore = Double.NEGATIVE_INFINITY;
+        int bx = agX, by = agY;
+        double dirLen = Math.sqrt((double) dirX * dirX + (double) dirY * dirY);
+        if (dirLen < 1.0) dirLen = 1.0;
+
+        for (int[] f : cachedFrontiers) {
+            int dx = f[0] - agX, dy = f[1] - agY;
+            int dist = wrappedManhattan(agX, agY, f[0], f[1]);
+            if (dist == 0) continue;
+            double dot = (dx * dirX + dy * dirY) / dirLen;
+            double score = dot * 3.0 - dist;
+            if (score > bestScore) {
+                bestScore = score;
+                bx = f[0]; by = f[1];
             }
         }
         resX.set(bx);
@@ -305,15 +401,25 @@ public class SharedMap extends Artifact {
         if (s > occupancyStep) occupancyStep = s;
     }
 
+    private Set<String> buildBlocked(int fx, int fy, int tx, int ty) {
+        Set<String> blocked = new HashSet<>(obstacles.keySet());
+        if (cells != null) {
+            for (Map.Entry<String, String> e : cells.entrySet()) {
+                if (e.getValue().startsWith("obstacle")) blocked.add(e.getKey());
+            }
+        }
+        blocked.remove(tx + "," + ty);
+        blocked.remove(fx + "," + fy);
+        return blocked;
+    }
+
     private int astarCost(int fx, int fy, int tx, int ty) {
         fx = normX(fx); fy = normY(fy);
         tx = normX(tx); ty = normY(ty);
         int mDist = wrappedManhattan(fx, fy, tx, ty);
         if (mDist > 60) return mDist;
 
-        Set<String> blocked = new HashSet<>(obstacles.keySet());
-        blocked.remove(tx + "," + ty);
-        blocked.remove(fx + "," + fy);
+        Set<String> blocked = buildBlocked(fx, fy, tx, ty);
         int[][] dirs = {{0,-1},{0,1},{-1,0},{1,0}};
 
         PriorityQueue<int[]> open = new PriorityQueue<>(Comparator.comparingInt(a -> a[2]));
@@ -354,9 +460,7 @@ public class SharedMap extends Artifact {
         int mDist = wrappedManhattan(fx, fy, tx, ty);
         if (mDist > 60) return greedy(fx, fy, tx, ty);
 
-        Set<String> blocked = new HashSet<>(obstacles.keySet());
-        blocked.remove(tx + "," + ty);
-        blocked.remove(fx + "," + fy);
+        Set<String> blocked = buildBlocked(fx, fy, tx, ty);
         // #2: overlay de ocupacao viva — penaliza (nao bloqueia) celula de colega,
         // exceto origem e alvo. So no astar (escolha do passo), nao no astarCost.
         Set<String> occupied = new HashSet<>();
@@ -515,5 +619,69 @@ public class SharedMap extends Artifact {
         // quando translateCells ganhar um chamador real — ver comentario acima.)
         cachedFrontiers = new ArrayList<>();
         lastFrontierVisitedSize = -1;
+    }
+
+    // ===== U9: Import/Export de discoveries para fusão de mapas =====
+
+    @OPERATION
+    void import_dispenser(Object ox, Object oy, Object otype) {
+        int x = normX(toInt(ox));
+        int y = normY(toInt(oy));
+        String type = otype.toString();
+        String k = x + "," + y;
+        String dispKey = k + ":" + type;
+        if (knownDispensers.add(dispKey)) {
+            cells.put(k, "dispenser:" + type);
+            defineObsProperty("known_dispenser", x, y, type);
+        }
+    }
+
+    @OPERATION
+    void import_goal_zone(Object ox, Object oy) {
+        int x = normX(toInt(ox));
+        int y = normY(toInt(oy));
+        String k = x + "," + y;
+        if (knownGoalZones.add(k)) {
+            cells.put(k, "goal_zone:");
+            defineObsProperty("known_goal_zone", x, y);
+        }
+    }
+
+    @OPERATION
+    void import_role_zone(Object ox, Object oy) {
+        int x = normX(toInt(ox));
+        int y = normY(toInt(oy));
+        String k = x + "," + y;
+        if (knownRoleZones.add(k)) {
+            cells.put(k, "role_zone:");
+            defineObsProperty("known_role_zone", x, y);
+        }
+    }
+
+    @OPERATION
+    void get_discovery_counts(OpFeedbackParam<Integer> nDisp,
+                              OpFeedbackParam<Integer> nGoal,
+                              OpFeedbackParam<Integer> nRole) {
+        nDisp.set(knownDispensers.size());
+        nGoal.set(knownGoalZones.size());
+        nRole.set(knownRoleZones.size());
+    }
+
+    @OPERATION
+    void export_dispensers(OpFeedbackParam<Object[]> result) {
+        Object[] arr = knownDispensers.toArray();
+        result.set(arr);
+    }
+
+    @OPERATION
+    void export_goal_zones(OpFeedbackParam<Object[]> result) {
+        Object[] arr = knownGoalZones.toArray();
+        result.set(arr);
+    }
+
+    @OPERATION
+    void export_role_zones(OpFeedbackParam<Object[]> result) {
+        Object[] arr = knownRoleZones.toArray();
+        result.set(arr);
     }
 }

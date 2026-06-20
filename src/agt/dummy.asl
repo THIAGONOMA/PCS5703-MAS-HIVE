@@ -1,5 +1,6 @@
 { include("common/perception.asl") }
 { include("common/shared_map_init.asl") }
+{ include("common/map_merge.asl") }
 { include("common/collection.asl") }
 { include("common/navigation.asl") }
 

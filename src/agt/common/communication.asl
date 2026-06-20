@@ -1,12 +1,8 @@
 // ============================================================
 // communication.asl — Mensagens de sincronizacao para connect
 // ============================================================
+// U9: coords recebidas sao traduzidas via known_offset se disponivel.
 
-// FIXME Fase D (#2, cross-frame): MX,MY estao no frame dead-reckoned DESTE agente.
-// Pre-fusao (sem U9) o collector le essas coords no SEU proprio frame (origem distinta),
-// entao a navegacao ate o ponto de connect fica incorreta no oficial — so o fallback por
-// adjacencia percebida (connect_protocol) funciona. A U9 (frame compartilhado) torna a
-// troca de coordenadas valida de novo.
 +!request_connect(CollectorName, TargetStep)
     : my_pos(MX, MY)
     <- .my_name(Me);
@@ -14,10 +10,16 @@
        .print("[COMM] Pedido de connect enviado para ", CollectorName, " no step ", TargetStep).
 
 +connect_request(AssemblerName, AsmX, AsmY, TargetStep)[source(S)]
-    <- .print("[COMM] Recebi pedido de connect de ", AssemblerName, " para step ", TargetStep);
+    <- // U9: traduzir coords do assembler para meu frame
+       if (known_offset(AssemblerName, DX, DY)) {
+           TAX = AsmX + DX; TAY = AsmY + DY;
+           .print("[COMM] connect_request de ", AssemblerName, " traduzido: (", AsmX, ",", AsmY, ")->(", TAX, ",", TAY, ")")
+       } else {
+           TAX = AsmX; TAY = AsmY
+       };
        .abolish(navigating_to_meeting_point(_));
        .abolish(has_destination(_, _));
-       +pending_connect(AssemblerName, AsmX, AsmY, TargetStep).
+       +pending_connect(AssemblerName, TAX, TAY, TargetStep).
 
 +!confirm_connect(AssemblerName)
     : my_pos(MX, MY)
@@ -26,8 +28,12 @@
        .print("[COMM] Confirmacao de connect enviada para ", AssemblerName).
 
 +connect_confirmed(CollectorName, ColX, ColY)[source(S)]
-    <- .print("[COMM] ", CollectorName, " confirmou connect em (", ColX, ",", ColY, ")");
-       +partner_confirmed(CollectorName, ColX, ColY).
+    <- if (known_offset(CollectorName, DX, DY)) {
+           TCX = ColX + DX; TCY = ColY + DY
+       } else {
+           TCX = ColX; TCY = ColY
+       };
+       +partner_confirmed(CollectorName, TCX, TCY).
 
 +!request_connect(_, _) <- true.
 +!confirm_connect(_) <- true.

@@ -4,6 +4,8 @@
 { include("$jacamo/templates/common-moise.asl") }
 { include("common/organization.asl") }
 { include("common/dashboard_hooks.asl") }
+{ include("common/map_merge.asl") }
+{ include("common/role_adoption.asl") }
 { include("common/connect_protocol.asl") }
 { include("common/collection.asl") }
 { include("common/navigation.asl") }
@@ -122,10 +124,8 @@ my_role_type(squad_leader).
                if (Busy1 | BusyAsm) {
                    .print("[LEADER] 2-block: busy, skip ", TaskName)
                } else {
-                   // FIXME Fase D (#2, cross-frame): GX,GY estao no frame DESTE leader.
-                   // Pre-fusao (sem U9) cada agente tem origem propria, entao o meeting-point
-                   // nao traduz para o frame do collector/assembler — rendezvous multi-bloco
-                   // so converge por adjacencia percebida. A U9 (frame compartilhado) resolve.
+                   // U9: coords no frame do leader; collector/assembler traduzem
+                   // via known_offset(LeaderName, DX, DY) ao ler get_meeting_point.
                    set_meeting_point(MySquad, GX, GY);
                    mark_busy(Col1);
                    mark_busy(Asm);
@@ -209,6 +209,8 @@ my_role_type(squad_leader).
        .abolish(task_accepted_step(_, _));
        .abolish(solo_mode(_));
        .abolish(solo_block_type(_));
+       .abolish(solo_blocks_needed(_));
+       .abolish(solo_blocks_collected(_));
        .abolish(my_task_deadline(_, _));
        .abolish(collecting(_, _, _));
        .abolish(has_destination(_, _));
@@ -216,6 +218,16 @@ my_role_type(squad_leader).
        .abolish(nav_block_count(_));
        .abolish(searching_dispenser(_));
        .abolish(needs_clear_blocks(_));
+       .abolish(collect_nav_start(_));
+       .abolish(solo_saved_req(_, _, _));
+       .abolish(partner_role(_, _));
+       .abolish(partner_target_pos(_, _, _, _));
+       .abolish(partner_connect_target(_, _));
+       .abolish(partner_block_collected(_));
+       .abolish(partner_signaled_ready);
+       .abolish(awaiting_partner(_, _, _, _, _, _));
+       .abolish(confirmed_partner(_, _));
+       .abolish(do_connect_with_partner(_, _));
        .concat("{\"task\":\"", TaskName, "\"}", FJson);
        !dash_log("task_finalized", FJson);
        !dash_task_phase(TaskName, "done", 100);
@@ -253,6 +265,7 @@ my_role_type(squad_leader).
     : (N mod 10) == 3 & my_pos(MX, MY) & step(N)
     <- !scan_and_delegate_tasks.
 
+// 1-block tasks
 +!scan_and_delegate_tasks
     : my_pos(MX, MY) & step(CS)
       & known_task(TN, TD, _, 1) & TD - CS > 40
@@ -263,6 +276,20 @@ my_role_type(squad_leader).
            is_task_assigned(TN, Assigned);
            if (not Assigned) {
                !quick_delegate(TN, TD, 1)
+           }
+       }.
+
+// 2-block tasks (quando não há 1-block não-assignada)
++!scan_and_delegate_tasks
+    : my_pos(MX, MY) & step(CS)
+      & known_task(TN, TD, _, 2) & TD - CS > 80
+      & task_req(TN, _, _, BType)
+    <- .my_name(Me);
+       get_my_squad(Me, MySquad);
+       if (MySquad \== "none") {
+           is_task_assigned(TN, Assigned);
+           if (not Assigned) {
+               !delegate_collection_safe(TN, 2, TD, BType)
            }
        }.
 

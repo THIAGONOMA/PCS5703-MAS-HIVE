@@ -118,6 +118,16 @@
        !do_explore(MX, MY).
 
 +step(N)
+    : my_pos(MX, MY) & my_active_task(TN, _) & (N mod 20) == 0
+    <- .print("[NAV] Step ", N, ": task=", TN, " ativa sem handler especifico! exploring. pos=(", MX, ",", MY, ")");
+       get_map_stats(V, D, G, R);
+       .print("[NAV]   map: vis=", V, " disp=", D, " goal=", G, " role=", R);
+       if (collecting(CT, CDX, CDY)) { .print("[NAV]   collecting(", CT, ",", CDX, ",", CDY, ")") };
+       if (pending_submit(PS)) { .print("[NAV]   pending_submit(", PS, ")") };
+       if (searching_dispenser(SD)) { .print("[NAV]   searching_dispenser(", SD, ")") };
+       !do_explore(MX, MY).
+
++step(N)
     : my_pos(MX, MY)
     <- !do_explore(MX, MY).
 
@@ -125,32 +135,116 @@
     <- .print("[NAV] Step ", N, ": Sem posicao, skip");
        action("skip").
 
-// --- Exploracao: buscar fronteira e mover ---
+// --- Exploração: corridor-following biased (#49) ---
+// Em cave maze 0.6, A* para fronteiras distantes falha porque mapa é
+// desconhecido. Estratégia: mover na direção preferida (setor), e quando
+// bloqueado, seguir corredores usando percepção visual direta.
+// Rotação do setor a cada 60 steps amplia cobertura.
 
 +!do_explore(MX, MY)
-    <- get_nearest_frontier(MX, MY, FX, FY);
-       if (FX == MX & FY == MY) {
-           if (last_attempted_dir(PrevDir)) {
-               if (PrevDir == n) { Dir = e }
-               elif (PrevDir == e) { Dir = s }
-               elif (PrevDir == s) { Dir = w }
-               else { Dir = n }
-           } else { Dir = n };
-           .abolish(last_attempted_dir(_));
-           +last_attempted_dir(Dir);
-           .concat("move(", Dir, ")", Act);
-           action(Act)
-       } else {
-           +has_destination(FX, FY);
-           compute_next_move(MX, MY, FX, FY, Dir);
-           .abolish(last_attempted_dir(_));
-           +last_attempted_dir(Dir);
-           .concat("move(", Dir, ")", Act);
-           action(Act)
-       }.
+    : not sector_dir(_, _)
+    <- .my_name(Me);
+       get_sector_target(Me, 20, SX, SY);
+       +sector_dir(SX, SY);
+       +sector_epoch(0);
+       !do_corridor_explore(MX, MY).
+
++!do_explore(MX, MY)
+    : sector_dir(OX, OY) & step(N) & sector_epoch(E) & (N - E > 60)
+    <- -sector_epoch(_); +sector_epoch(N);
+       .abolish(sector_dir(_, _));
+       NX = 0 - OY; NY = OX;
+       +sector_dir(NX, NY);
+       !do_corridor_explore(MX, MY).
+
++!do_explore(MX, MY)
+    <- !do_corridor_explore(MX, MY).
 
 -!do_explore(_, _)
-    <- action("move(n)").
+    <- .abolish(last_attempted_dir(_));
+       +last_attempted_dir(n);
+       action("move(n)").
+
+// Corridor-following: tenta mover na dir preferida do setor; se bloqueado
+// (obstáculo visível), roda para perpendicular disponível. Nunca usa A*
+// para alvos distantes desconhecidos — apenas percepção local.
++!do_corridor_explore(MX, MY)
+    : sector_dir(SX, SY)
+    <- // Calcula direção cardeal preferida a partir do vetor setor
+       if (math.abs(SX) >= math.abs(SY)) {
+           if (SX > 0) { PrefDir = e; AltDir1 = n; AltDir2 = s; BackDir = w }
+           else { PrefDir = w; AltDir1 = s; AltDir2 = n; BackDir = e }
+       } else {
+           if (SY > 0) { PrefDir = s; AltDir1 = e; AltDir2 = w; BackDir = n }
+           else { PrefDir = n; AltDir1 = w; AltDir2 = e; BackDir = s }
+       };
+       !try_corridor_dir(PrefDir, AltDir1, AltDir2, BackDir).
+
++!do_corridor_explore(MX, MY)
+    <- // Sem setor definido: direção aleatória
+       .random(R);
+       if (R < 0.25) { Dir = n }
+       elif (R < 0.5) { Dir = e }
+       elif (R < 0.75) { Dir = s }
+       else { Dir = w };
+       .abolish(last_attempted_dir(_));
+       +last_attempted_dir(Dir);
+       .concat("move(", Dir, ")", Act);
+       action(Act).
+
+-!do_corridor_explore(_, _)
+    <- .abolish(last_attempted_dir(_));
+       +last_attempted_dir(n);
+       action("move(n)").
+
+// Tenta dir preferida, depois alternativas, evitando reverso do último move
++!try_corridor_dir(PrefDir, AltDir1, AltDir2, BackDir)
+    <- .abolish(has_destination(_, _));
+       !pick_corridor_move(PrefDir, AltDir1, AltDir2, BackDir).
+
++!pick_corridor_move(PrefDir, AltDir1, AltDir2, BackDir)
+    <- // Tenta preferida se não bloqueada visualmente
+       !get_dir_offset(PrefDir, PX, PY);
+       if (not cell_blocked(PX, PY) & not is_bounce(PrefDir)) {
+           ChosenDir = PrefDir
+       } else {
+           // Tenta alternativas (com jitter para não ficar preso em loops)
+           !get_dir_offset(AltDir1, A1X, A1Y);
+           !get_dir_offset(AltDir2, A2X, A2Y);
+           .random(Jit);
+           if (Jit < 0.5) { FirstAlt = AltDir1; FA_X = A1X; FA_Y = A1Y; SecondAlt = AltDir2; SA_X = A2X; SA_Y = A2Y }
+           else { FirstAlt = AltDir2; FA_X = A2X; FA_Y = A2Y; SecondAlt = AltDir1; SA_X = A1X; SA_Y = A1Y };
+           if (not cell_blocked(FA_X, FA_Y) & not is_bounce(FirstAlt)) {
+               ChosenDir = FirstAlt
+           } elif (not cell_blocked(SA_X, SA_Y) & not is_bounce(SecondAlt)) {
+               ChosenDir = SecondAlt
+           } elif (not cell_blocked(PX, PY)) {
+               ChosenDir = PrefDir
+           } else {
+               !get_dir_offset(BackDir, BX, BY);
+               if (not cell_blocked(BX, BY)) {
+                   ChosenDir = BackDir
+               } else {
+                   ChosenDir = PrefDir
+               }
+           }
+       };
+       .abolish(last_attempted_dir(_));
+       +last_attempted_dir(ChosenDir);
+       .concat("move(", ChosenDir, ")", Act);
+       action(Act).
+
+-!pick_corridor_move(_, _, _, _)
+    <- .abolish(last_attempted_dir(_));
+       +last_attempted_dir(n);
+       action("move(n)").
+
+// Resolve offset de uma direção
++!get_dir_offset(n, 0, -1) <- true.
++!get_dir_offset(s, 0, 1) <- true.
++!get_dir_offset(e, 1, 0) <- true.
++!get_dir_offset(w, -1, 0) <- true.
+-!get_dir_offset(_, 0, 0) <- true.
 
 // ============================================================
 // Escape reativo (#3 + #4 agindo) — camada 100% .asl

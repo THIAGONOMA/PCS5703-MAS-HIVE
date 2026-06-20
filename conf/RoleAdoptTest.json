@@ -16,7 +16,7 @@
 
   "match" : [
     {
-      "steps" : 100,
+      "steps" : 300,
       "randomSeed" : 17,
       "randomFail" : 1,
       "entities" : {"standard" : 20},
@@ -26,9 +26,30 @@
         {
           "name" : "default",
           "vision" : 5,
-          "actions" : ["skip","move","rotate","adopt","request","attach","detach","connect","disconnect","submit","clear","survey"],
-          "speed" : [3, 2, 1],
-          "clear" : { "chance" : 0.3, "maxDistance" : 1 }
+          "actions" : ["skip","move","rotate","adopt","detach","clear"],
+          "speed" : [1],
+          "clear" : { "chance" : 0.7, "maxDistance" : 1 }
+        },
+        {
+          "name" : "worker",
+          "actions" : ["request","attach","connect","disconnect","submit"],
+          "speed" : [2, 1, 1, 0]
+        },
+        {
+          "name" : "constructor",
+          "actions" : ["request","attach","connect","disconnect","submit"],
+          "speed" : [1]
+        },
+        {
+          "name" : "explorer",
+          "vision" : 7,
+          "actions" : ["attach","survey"],
+          "speed" : [3, 0]
+        },
+        {
+          "name" : "digger",
+          "speed" : [1, 0],
+          "clear" : { "chance" : 1, "maxDistance" : 5 }
         }
       ],
 
@@ -45,7 +66,7 @@
         "height" : 40,
         "width" : 40,
         "instructions": [
-          ["cave", 0.45, 2, 5, 4]
+          ["cave", 0.40, 2, 5, 4]
         ],
         "goals": {
           "number" : 3,
@@ -53,8 +74,8 @@
           "moveProbability": 0.1
         },
         "roleZones" : {
-          "number" : 3,
-          "size" : [2, 3]
+          "number" : 8,
+          "size" : [3, 5]
         }
       },
 
@@ -91,7 +112,7 @@
         ]
       },
 
-      "absolutePosition" : true
+      "absolutePosition" : false
     }
   ],
 

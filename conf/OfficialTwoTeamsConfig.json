@@ -1,7 +1,7 @@
 {
   "server" : {
     "tournamentMode" : "round-robin",
-    "teamsPerMatch" : 1,
+    "teamsPerMatch" : 2,
     "launch" : "25s",
     "port" : 12300,
     "backlog" : 10000,
@@ -17,7 +17,7 @@
   "match" : [
     {
       "steps" : 750,
-      "randomSeed" : 42,
+      "randomSeed" : 17,
       "randomFail" : 1,
       "entities" : {"standard" : 20},
       "clusterBounds" : [1,3],
@@ -141,6 +141,7 @@
   ],
 
   "teams" : {
-    "A" : {"prefix" : "agent", "password" : "1"}
+    "A" : {"prefix" : "agent", "password" : "1"},
+    "B" : {"prefix" : "agent", "password" : "1"}
   }
 }

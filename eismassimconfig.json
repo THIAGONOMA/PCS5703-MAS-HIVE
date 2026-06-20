@@ -11,7 +11,7 @@
       "name-prefix": "connectionA",
       "username-prefix": "agentA",
       "password": "1",
-      "count": 15,
+      "count": 20,
       "start-index": 1,
       "print-iilang": false,
       "print-json": false

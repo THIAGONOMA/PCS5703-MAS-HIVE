@@ -36,15 +36,20 @@ public class SquadCoordinator extends Artifact {
         String[][] squads = {
             {"squad1", "connectionA1", "connectionA4", "connectionA5", "connectionA10"},
             {"squad2", "connectionA2", "connectionA6", "connectionA7", "connectionA11"},
-            {"squad3", "connectionA3", "connectionA8", "connectionA9", "connectionA12"}
+            {"squad3", "connectionA3", "connectionA8", "connectionA9", "connectionA12"},
+            {"squad4", "connectionA16", "connectionA17", "connectionA18", "connectionA19"}
         };
         String[][] roles = {
             {"connectionA1", "leader"}, {"connectionA2", "leader"}, {"connectionA3", "leader"},
+            {"connectionA16", "leader"},
             {"connectionA4", "collector"}, {"connectionA5", "collector"},
             {"connectionA6", "collector"}, {"connectionA7", "collector"},
             {"connectionA8", "collector"}, {"connectionA9", "collector"},
+            {"connectionA17", "collector"}, {"connectionA18", "collector"},
             {"connectionA10", "assembler"}, {"connectionA11", "assembler"}, {"connectionA12", "assembler"},
-            {"connectionA13", "sentinel"}, {"connectionA14", "sentinel"}, {"connectionA15", "sentinel"}
+            {"connectionA19", "assembler"},
+            {"connectionA13", "sentinel"}, {"connectionA14", "sentinel"}, {"connectionA15", "sentinel"},
+            {"connectionA20", "sentinel"}
         };
         for (String[] sq : squads) {
             String sid = sq[0];
@@ -62,7 +67,9 @@ public class SquadCoordinator extends Artifact {
             "connectionA1", "connectionA2", "connectionA3",
             "connectionA4", "connectionA5", "connectionA6", "connectionA7",
             "connectionA8", "connectionA9", "connectionA10", "connectionA11",
-            "connectionA12", "connectionA13", "connectionA14", "connectionA15"
+            "connectionA12", "connectionA13", "connectionA14", "connectionA15",
+            "connectionA16", "connectionA17", "connectionA18", "connectionA19",
+            "connectionA20"
         };
         for (String ag : soloists) {
             soloistBusy.put(ag, false);

@@ -15,11 +15,10 @@
 
 // --- Posicao: dev usa o percept 'position'; no oficial (absolutePosition:false,
 // sem percept) cai para dead-reckoning em dr_pos (Fase D / keystone U2). ---
+//
+// dr_pos é observable property do EISAccess artifact (DR em Java).
 my_pos(X, Y) :- position(X, Y).
 my_pos(X, Y) :- not position(_, _) & dr_pos(X, Y).
-
-// frame local dead-reckoned (origem no inicio); integrado a cada move bem-sucedido.
-dr_pos(0, 0).
 
 // dev (ha percept 'position'): aplica as dims do GridConfig 1x (origem: -PgridW/H
 // ou default 40). No oficial este plano nunca dispara, logo dims ficam 0 (ver
@@ -32,11 +31,13 @@ dr_pos(0, 0).
 +!on_pos_update(X, Y)
     <- .abolish(escape_pending(_, _));
        mark_visited(X, Y);
+       mark_vision_visited(X, Y, 5);
        .my_name(Me);
        !try_update_pos(Me, X, Y);
        !dash_step_safe;
        !check_stuck(X, Y);
        !check_osc(X, Y);
+       !try_merge_scan;
        !periodic_cleanup.
 -!on_pos_update(_, _) <- true.
 
@@ -44,18 +45,11 @@ dr_pos(0, 0).
 +!offline_cascade : not position(_, _) & dr_pos(X, Y) <- !on_pos_update(X, Y).
 +!offline_cascade <- true.
 
-// integra o move bem-sucedido no frame local (so quando dead-reckoning, i.e. sem percept).
-// Espelha hive.LocalFrame.integrate (fonte canonica testada) — manter os deltas n/s/e/w em sincronia.
-// guard lastAction(move): so integra se a acao deste step foi MESMO um move — senao um
-// last_attempted_dir remanescente de um move falho seria integrado por um sucesso de
-// acao nao-move (skip/attach/rotate/connect), driftando dr_pos permanentemente (review Fase D).
-+!dead_reckon_move : not position(_, _) & lastAction(move) & last_attempted_dir(D) & dr_pos(X, Y)
-    <- if (D == n) { NX = X; NY = Y - 1 }
-       elif (D == s) { NX = X; NY = Y + 1 }
-       elif (D == e) { NX = X + 1; NY = Y }
-       elif (D == w) { NX = X - 1; NY = Y }
-       else { NX = X; NY = Y };
-       -dr_pos(_, _); +dr_pos(NX, NY).
+// DR via artifact: quando dr_pos muda, rodar cascata de posição
++dr_pos(X, Y) : not position(_, _)
+    <- !on_pos_update(X, Y).
+
+// DR agora é feito no EISAccess.java; handler mantido como no-op por segurança.
 +!dead_reckon_move <- true.
 
 +!check_stuck(X, Y)
@@ -83,21 +77,26 @@ dr_pos(0, 0).
 +!check_stuck(_, _) <- true.
 -!check_stuck(_, _) <- true.
 
-// --- Deteccao de oscilacao A<->B (passo 2 / #4) — SO-LOG (nao muda comportamento) ---
-// "Ping-pong": voltar a celula de 2 steps atras tendo se movido, com destino ativo.
-// E o ponto cego do check_stuck (que so ve mesma-celula por >=50 steps). Cada disparo
-// conta uma oscilacao (mapeia a metrica "~180"). Quando isto for AGIR (replanejar/
-// abandonar via #3), exigir padrao SUSTENTADO p/ nao acusar contorno legitimo.
+// --- Detecção de oscilação A<->B (#4) ---
+// Exige 3+ ping-pongs consecutivos antes de disparar escape.
+// Evita acusar contorno legítimo como oscilação.
 
 +!check_osc(X, Y)
     : osc_p2(X2, Y2) & X == X2 & Y == Y2
       & osc_p1(X1, Y1) & (X \== X1 | Y \== Y1)
-      & has_destination(DX, DY) & step(N)
-    <- .print("[OSC] ping-pong (", X, ",", Y, ")<->(", X1, ",", Y1, ") rumo a (", DX, ",", DY, ") step ", N);
-       .abolish(escape_pending(_, _));
-       +escape_pending(X, Y);
+      & step(N)
+    <- if (osc_count(OC)) { -osc_count(OC); NOC = OC + 1 } else { NOC = 1 };
+       +osc_count(NOC);
+       if (NOC >= 3 & has_destination(DX, DY)) {
+           .print("[OSC] ping-pong x", NOC, " (", X, ",", Y, ")<->(", X1, ",", Y1, ") step ", N);
+           .abolish(escape_pending(_, _));
+           +escape_pending(X, Y);
+           -osc_count(_)
+       };
        !osc_shift(X, Y).
-+!check_osc(X, Y) <- !osc_shift(X, Y).
++!check_osc(X, Y)
+    <- .abolish(osc_count(_));
+       !osc_shift(X, Y).
 -!check_osc(_, _) <- true.
 
 +!osc_shift(X, Y)
@@ -218,46 +217,43 @@ norm_allows_carry :- carry_limit(Limit) & .count(attached(_, _), N) & N < Limit.
 
 // --- Role ---
 
+// P0: ao receber o role corrente, se for capaz de coletar/submeter, encerra a
+// necessidade de adocao (role_capable/1 definido em role_adoption.asl).
 +role(R)
-    <- -my_role(_); +my_role(R).
+    <- -my_role(_); +my_role(R);
+       if (role_capable(R) & need_role_adoption) {
+           -need_role_adoption;
+           .print("[ROLE] Adotei ", R, " — habilitado para coletar/submeter")
+       }.
 
 // --- Resultado de acao (tracking) ---
 
-+lastActionResult(failed_path)
-    : my_pos(MX, MY) & last_attempted_dir(Dir) & step(N)
-    <- +last_move_blocked;
-       -last_attempted_dir(Dir);
-       if (Dir == n) { DX = 0; DY = -1 }
-       elif (Dir == s) { DX = 0; DY = 1 }
-       elif (Dir == e) { DX = 1; DY = 0 }
-       else { DX = -1; DY = 0 };
-       // #1+B5 (passo 1): bloqueio por colega/oponente eh transitorio; marcar a celula
-       // dele criava obstaculo-fantasma de ~30 steps no mapa compartilhado. So marca
-       // obstaculo quando a celula-alvo NAO tem entity percebido (parede/bloco real).
-       if (not thing(DX, DY, entity, _)) {
-           mark_obstacle(MX + DX, MY + DY, N)
-       };
-       if (attached(AX, AY)) {
-           ABX = AX + DX; ABY = AY + DY;
-           if (not thing(ABX, ABY, entity, _)) {
-               mark_obstacle(MX + ABX, MY + ABY, N)
-           }
-       };
-       !offline_cascade.
+// DR agora é processado via +step(N) handler em perception.asl (acima).
+// Estes handlers fazem tracking de blocked/cascata mas NÃO atualizam DR.
 
 +lastActionResult(failed_path)
     <- +last_move_blocked;
        !offline_cascade.
 
 +lastActionResult(failed)
-    : lastAction(move) & last_attempted_dir(_)
-    <- +last_move_blocked;
-       !offline_cascade.
+    <- !offline_cascade.
 
 +lastActionResult(success)
     <- -last_move_blocked;
-       !dead_reckon_move;
-       -last_attempted_dir(_);
+       !offline_cascade.
+
+// P0: role corrente nao permite a acao tentada (cenario oficial). Marca a
+// necessidade de adotar 'worker' numa role zone. So ocorre no oficial — no dev
+// 'default' tem todas as acoes, entao nunca dispara (auto-deteccao de modo).
++lastActionResult(failed_role)
+    <- if (not need_role_adoption) {
+           .print("[ROLE] failed_role: role atual nao permite a acao — preciso adotar worker");
+           +need_role_adoption;
+           .abolish(collecting(_, _, _));
+           .abolish(waiting_request(_, _));
+           .abolish(waiting_attach_result(_, _));
+           .abolish(searching_dispenser(_))
+       };
        !offline_cascade.
 
 // outros codigos de resultado (sem handler especifico): ainda rodam a cascata 1x/step no oficial.
@@ -277,7 +273,8 @@ has_block :- my_attached(_, _).
 +!periodic_cleanup : step(N) & (N mod 50) == 0
     <- !check_expired_task;
        decay_obstacles(N);
-       remove_expired(N).
+       remove_expired(N);
+       !try_periodic_remerge.
 +!periodic_cleanup : step(N) & (N mod 10) == 0
     <- !check_expired_task;
        decay_obstacles(N).

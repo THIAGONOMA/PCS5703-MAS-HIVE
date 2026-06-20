@@ -5,6 +5,8 @@
 { include("common/organization.asl") }
 { include("common/dashboard_hooks.asl") }
 { include("common/communication.asl") }
+{ include("common/map_merge.asl") }
+{ include("common/role_adoption.asl") }
 { include("common/connect_protocol.asl") }
 { include("common/collection.asl") }
 { include("common/navigation.asl") }
@@ -177,10 +179,18 @@ my_role_type(assembler).
     <- .print("[ASSEMBLER] Bloco ", Type, " coletado para multi-block task ", TaskName);
        get_meeting_point(SquadId, MPX, MPY);
        if (MPX \== -1) {
+           // U9: traduzir meeting point do frame do leader para meu frame
+           get_squad_leader(SquadId, LeaderName);
+           if (known_offset(LeaderName, DX, DY)) {
+               FX = MPX + DX; FY = MPY + DY;
+               .print("[ASSEMBLER] Meeting point traduzido de ", LeaderName, ": (", MPX, ",", MPY, ")->(", FX, ",", FY, ")")
+           } else {
+               FX = MPX; FY = MPY
+           };
            .abolish(has_destination(_, _));
-           +has_destination(MPX, MPY);
+           +has_destination(FX, FY);
            +navigating_to_meeting_for_connect(SquadId, "pending", TaskName);
-           .print("[ASSEMBLER] Indo ao meeting point (", MPX, ",", MPY, ")")
+           .print("[ASSEMBLER] Indo ao meeting point (", FX, ",", FY, ")")
        }.
 
 // --- Receber notificacao de task do leader (legacy) ---
@@ -202,9 +212,16 @@ my_role_type(assembler).
            if (Ready) {
                .print("[ASSEMBLER] Todos collectors prontos no squad ", MySquad, "! Verificando minha posicao...");
                get_meeting_point(MySquad, MPX, MPY);
+               // U9: traduzir coords do leader para meu frame
+               get_squad_leader(MySquad, LeaderName);
+               if (known_offset(LeaderName, LDX, LDY)) {
+                   FMX = MPX + LDX; FMY = MPY + LDY
+               } else {
+                   FMX = MPX; FMY = MPY
+               };
                if (not has_destination(_, _) & not navigating_to_meeting_for_connect(_, _, _)) {
                    .abolish(has_destination(_, _));
-                   +has_destination(MPX, MPY);
+                   +has_destination(FMX, FMY);
                    +navigating_to_meeting_for_connect(MySquad, AgentName, TaskName);
                    .print("[ASSEMBLER] Indo ao meeting point para connect")
                } else {
@@ -239,12 +256,24 @@ my_role_type(assembler).
        .abolish(multi_block_mode(_, _));
        .abolish(solo_mode(_));
        .abolish(solo_block_type(_));
+       .abolish(solo_blocks_needed(_));
+       .abolish(solo_blocks_collected(_));
        .abolish(my_task_deadline(_, _));
        .abolish(collecting(_, _, _));
        .abolish(has_destination(_, _));
        .abolish(nav_block_count(_));
        .abolish(searching_dispenser(_));
        .abolish(needs_clear_blocks(_));
+       .abolish(collect_nav_start(_));
+       .abolish(solo_saved_req(_, _, _));
+       .abolish(partner_role(_, _));
+       .abolish(partner_target_pos(_, _, _, _));
+       .abolish(partner_connect_target(_, _));
+       .abolish(partner_block_collected(_));
+       .abolish(partner_signaled_ready);
+       .abolish(awaiting_partner(_, _, _, _, _, _));
+       .abolish(confirmed_partner(_, _));
+       .abolish(do_connect_with_partner(_, _));
        .concat("{\"task\":\"", TaskName, "\",\"squad\":\"", MySquad, "\"}", FJson);
        !dash_log("task_finalized", FJson);
        !dash_task_phase(TaskName, "done", 100);

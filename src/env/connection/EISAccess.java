@@ -37,6 +37,10 @@ public class EISAccess extends Artifact implements AgentListener {
     private List<Percept> currentPercepts = new ArrayList<>();
     private boolean firstStep = true;
 
+    private int drX = 0, drY = 0;
+    private String pendingMoveDir = null;
+    private boolean hasPosition = false;
+
     private static final Set<String> SIM_START_PERCEPTS = new HashSet<>();
     static {
         SIM_START_PERCEPTS.add("simStart");
@@ -49,13 +53,17 @@ public class EISAccess extends Artifact implements AgentListener {
 
     void init(String conf, String entityName) {
         this.agName = entityName;
+        System.out.println("[EISAccess] init called for agent: " + entityName + " conf: " + conf);
 
         synchronized (lock) {
             if (!eisStarted) {
+                System.out.println("[EISAccess] Creating shared EnvironmentInterface from: " + conf);
                 sharedEI = new EnvironmentInterface(conf);
                 try {
                     sharedEI.start();
+                    System.out.println("[EISAccess] EnvironmentInterface started successfully");
                 } catch (ManagementException e) {
+                    System.err.println("[EISAccess] ERROR starting EnvironmentInterface:");
                     e.printStackTrace();
                 }
                 eisStarted = true;
@@ -64,7 +72,9 @@ public class EISAccess extends Artifact implements AgentListener {
 
         try {
             sharedEI.registerAgent(this.agName);
+            System.out.println("[EISAccess] Registered agent: " + this.agName);
         } catch (AgentException e) {
+            System.err.println("[EISAccess] ERROR registering agent " + this.agName + ":");
             e.printStackTrace();
         }
 
@@ -72,7 +82,9 @@ public class EISAccess extends Artifact implements AgentListener {
 
         try {
             sharedEI.associateEntity(this.agName, this.agName);
+            System.out.println("[EISAccess] Associated entity: " + this.agName);
         } catch (RelationException e) {
+            System.err.println("[EISAccess] ERROR associating entity " + this.agName + ":");
             e.printStackTrace();
         }
 
@@ -123,7 +135,35 @@ public class EISAccess extends Artifact implements AgentListener {
                         }
                     }
 
+                    // DR: check result and update position BEFORE exposing percepts
+                    String actionResult = null;
+                    boolean hasAbsPosition = false;
+                    for (Percept pe : currentPercepts) {
+                        if (pe.getName().equals("lastActionResult")) {
+                            actionResult = pe.getParameters().get(0).toString();
+                        } else if (pe.getName().equals("position")) {
+                            hasAbsPosition = true;
+                        }
+                    }
+                    if (hasAbsPosition) {
+                        hasPosition = true;
+                    }
+                    if (!hasPosition && pendingMoveDir != null && "success".equals(actionResult)) {
+                        switch (pendingMoveDir) {
+                            case "n": drY--; break;
+                            case "s": drY++; break;
+                            case "e": drX++; break;
+                            case "w": drX--; break;
+                        }
+                    }
+                    pendingMoveDir = null;
+
                     clearPercepts();
+
+                    // Expose DR position as observable property (before step)
+                    if (!hasPosition) {
+                        this.lastRoundProperties.add(defineObsProperty("dr_pos", drX, drY));
+                    }
 
                     Percept step = null;
                     for (Percept pe : currentPercepts) {
@@ -171,6 +211,17 @@ public class EISAccess extends Artifact implements AgentListener {
     @OPERATION
     void action(String action) {
         Literal literal = Literal.parseLiteral(action);
+        // Track move direction for DR
+        if (action.startsWith("move(")) {
+            String dir = action.substring(5, action.length() - 1);
+            if (dir.equals("n") || dir.equals("s") || dir.equals("e") || dir.equals("w")) {
+                pendingMoveDir = dir;
+            } else {
+                pendingMoveDir = null;
+            }
+        } else {
+            pendingMoveDir = null;
+        }
         int retries = 3;
         for (int i = 0; i < retries; i++) {
             try {

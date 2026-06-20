@@ -3,6 +3,186 @@
 // Incluir ANTES de collection.asl para prioridade maxima de +step(N)
 // ============================================================
 
+// #52: bloco attached ja satisfaz o requisito da task (posicao identica).
+block_already_aligned(TaskName) :-
+    task_req(TaskName, RX, RY, _) &
+    attached(RX, RY).
+
+// --- MULTI-BLOCK: recrutamento de parceiro via connect ---
+// Intercepta collected_block ANTES dos handlers role-specific.
+// Após coletar o 1o bloco de um 2-block task, recruta um parceiro
+// que coleta o 2o bloco e faz connect na geometria correta.
+
+// Primeiro bloco coletado (2-block task) → recrutar parceiro
+// Usa solo_saved_req (armazenado no self-assign) para evitar race condition
+// com +task() que pode abolish task_req temporariamente.
++collected_block(Type)
+    : solo_mode(TaskName) & solo_blocks_needed(2) & solo_blocks_collected(0)
+      & my_pos(MX, MY)
+    <- -solo_blocks_collected(0); +solo_blocks_collected(1);
+       .findall(req(RX,RY,RT), solo_saved_req(RX, RY, RT), Reqs);
+       if (.length(Reqs, NR) & NR < 2) {
+           .findall(req(RX2,RY2,RT2), task_req(TaskName, RX2, RY2, RT2), Reqs2);
+           if (.length(Reqs2, NR2) & NR2 >= 2) { UseReqs = Reqs2 }
+           else { UseReqs = [] }
+       } else {
+           UseReqs = Reqs
+       };
+       .length(UseReqs, FinalLen);
+       if (FinalLen >= 2) {
+           .nth(0, UseReqs, req(R0X, R0Y, R0T));
+           .nth(1, UseReqs, req(R1X, R1Y, R1T));
+           if (R0X == 0 & R0Y == 1) {
+               SecType = R1T; B2X = R1X; B2Y = R1Y
+           } else {
+               SecType = R0T; B2X = R0X; B2Y = R0Y
+           };
+           get_nearest_goal_zone(MX, MY, GZX, GZY);
+           if (GZX \== -1) {
+               .my_name(Me);
+               .abolish(has_destination(_, _));
+               +has_destination(GZX, GZY);
+               +awaiting_partner(TaskName, SecType, GZX, GZY, B2X, B2Y);
+               .broadcast(tell, need_partner(Me, TaskName, SecType, GZX, GZY, B2X, B2Y));
+               .print("[MULTI] 1o bloco OK. Recrutando parceiro para ", SecType,
+                       " tarefa=", TaskName, " gzone=(", GZX, ",", GZY, ") blk2=(", B2X, ",", B2Y, ")")
+           } else {
+               .print("[MULTI] Sem goal zone. Submit solo.");
+               +pending_submit(TaskName)
+           }
+       } else {
+           .print("[MULTI] Reqs inconsistentes. Submit com o que tem: ", TaskName);
+           +pending_submit(TaskName);
+           get_nearest_goal_zone(MX, MY, GX, GY);
+           if (GX \== -1) {
+               .abolish(has_destination(_, _));
+               +has_destination(GX, GY)
+           }
+       }.
+
+// --- PARCEIRO: aceitar pedido de recrutamento ---
++need_partner(SubmitterName, TaskName, BlockType, GZX, GZY, B2X, B2Y)[source(S)]
+    : not my_active_task(_, _) & not collecting(_, _, _)
+      & not pending_submit(_) & not navigating_to_meeting_point(_)
+      & not partner_role(_, _)
+      & not need_role_adoption
+    <- .my_name(Me);
+       if (Me \== SubmitterName) {
+           .print("[PARTNER] Aceito parceria com ", SubmitterName, " para ", TaskName, " bloco=", BlockType);
+           mark_busy(Me);
+           .abolish(collecting(_, _, _));
+           .abolish(has_destination(_, _));
+           .abolish(waiting_request(_, _));
+           .abolish(waiting_attach_result(_, _));
+           .abolish(collected_block(_));
+           +my_active_task(TaskName, "partner");
+           +partner_role(SubmitterName, TaskName);
+           +partner_target_pos(GZX, GZY, B2X, B2Y);
+           .send(SubmitterName, tell, partner_accepted(Me, TaskName));
+           !collect_block(BlockType)
+       }.
+
+// Parceiro já ocupado → ignorar
++need_partner(_, _, _, _, _, _, _) <- true.
+
+// Submitter recebe confirmação do parceiro
++partner_accepted(PartnerName, TaskName)[source(S)]
+    : awaiting_partner(TaskName, _, _, _, _, _)
+    <- .print("[MULTI] Parceiro ", PartnerName, " aceitou para ", TaskName);
+       -awaiting_partner(TaskName, _, _, _, _, _);
+       +confirmed_partner(PartnerName, TaskName).
+
+// Parceiro coletou bloco → rotacionar para (0,-1) e navegar ao offset
++collected_block(Type)
+    : partner_role(SubmitterName, TaskName) & partner_target_pos(GZX, GZY, B2X, B2Y)
+      & my_pos(MX, MY)
+    <- .print("[PARTNER] Bloco ", Type, " coletado. Rotacionando e navegando para connect.");
+       +partner_block_collected(Type);
+       TargetX = GZX + B2X;
+       TargetY = GZY + B2Y + 1;
+       .abolish(has_destination(_, _));
+       +has_destination(TargetX, TargetY);
+       +partner_connect_target(TargetX, TargetY);
+       .print("[PARTNER] Navegando para (", TargetX, ",", TargetY, ") para connect com ", SubmitterName).
+
+// Parceiro: rotacionar bloco para (0,-1) antes do connect
++step(N)
+    : partner_role(_, _) & partner_block_collected(_)
+      & partner_connect_target(TX, TY) & my_pos(MX, MY)
+      & MX == TX & MY == TY
+      & attached(AX, AY) & (AX \== 0 | AY \== -1)
+    <- .print("[PARTNER] Rotacionando bloco de (", AX, ",", AY, ") para (0,-1)");
+       action("rotate(cw)").
+
+// Parceiro: no ponto alvo com bloco em (0,-1) → sinalizar pronto
++step(N)
+    : partner_role(SubmitterName, TaskName) & partner_block_collected(_)
+      & partner_connect_target(TX, TY) & my_pos(MX, MY)
+      & MX == TX & MY == TY
+      & attached(0, -1)
+    <- .my_name(Me);
+       .print("[PARTNER] Pronto para connect com ", SubmitterName);
+       .send(SubmitterName, tell, partner_ready(Me, TaskName));
+       +partner_signaled_ready.
+
+// Submitter recebe sinal de parceiro pronto → armar belief para +step
++partner_ready(PartnerName, TaskName)[source(S)]
+    : confirmed_partner(PartnerName, TaskName)
+    <- .print("[MULTI] Parceiro ", PartnerName, " pronto para connect.");
+       +do_connect_with_partner(PartnerName, TaskName).
+
++partner_ready(_, _) <- true.
+
+// Submitter: cada step, tenta connect quando no goal zone com parceiro pronto
++step(N)
+    : do_connect_with_partner(PartnerName, TaskName)
+      & goalZone(0, 0) & attached(AX, AY) & my_pos(MX, MY)
+    <- -do_connect_with_partner(PartnerName, TaskName);
+       .concat("connect(", PartnerName, ",", AX, ",", AY, ")", Act);
+       action(Act);
+       +waiting_connect_result(PartnerName, TaskName);
+       .print("[MULTI] Step ", N, ": Connect(", PartnerName, ",", AX, ",", AY, ")").
+
+// Submitter: não no goal zone → skip (continua navegando no handler de pending_submit)
++step(N)
+    : do_connect_with_partner(_, _) & not goalZone(0, 0) & my_pos(MX, MY)
+    <- true.
+
+// Parceiro: cada step no ponto alvo com bloco em (0,-1) → fire connect
++step(N)
+    : partner_role(SubmitterName, _) & partner_signaled_ready
+      & attached(0, -1)
+    <- .concat("connect(", SubmitterName, ",0,-1)", Act);
+       action(Act);
+       .print("[PARTNER] Step ", N, ": Connect com ", SubmitterName).
+
+// Connect sucesso do parceiro → liberar
++step(N)
+    : partner_role(SubmitterName, TaskName)
+      & lastAction(connect) & lastActionResult(success)
+    <- .print("[PARTNER] Connect OK! Bloco transferido.");
+       .my_name(Me);
+       mark_free(Me);
+       .abolish(partner_role(_, _));
+       .abolish(partner_target_pos(_, _, _, _));
+       .abolish(partner_connect_target(_, _));
+       .abolish(partner_block_collected(_));
+       .abolish(partner_signaled_ready);
+       .abolish(my_active_task(_, _));
+       .abolish(confirmed_partner(_, _));
+       .abolish(has_destination(_, _));
+       .abolish(do_connect_with_partner(_, _));
+       !do_explore(0, 0).
+
+// Connect falha do parceiro → retentar no próximo step (automaticamente pelo handler acima)
++step(N)
+    : partner_role(SubmitterName, _)
+      & lastAction(connect) & lastActionResult(R) & R \== success
+    <- .print("[PARTNER] Step ", N, ": Connect falhou (", R, "). Retentando...").
+
+// Submitter: connect sucesso → submit
+// (tratado pelo handler existente de waiting_connect_result, line ~652)
+
 // --- DESATIVADO: nao fazer nada ---
 
 +step(N)
@@ -33,79 +213,173 @@
        !collect_block(Type).
 
 // --- NORM VIOLATION: detach excess blocks to avoid penalty ---
+// #51: (a) só detach de bloco cardinal-adjacente (|dx|+|dy|==1);
+//      (b) cede ao submit quando pending_submit + goalZone (submit consome 1 bloco e resolve a violação).
 
 +step(N)
     : carry_limit(Limit) & .count(attached(_, _), NumAtt) & NumAtt > Limit
-      & not pending_submit(_) & not submitted_task(_) & not collecting(_, _, _)
+      & not (pending_submit(_) & goalZone(0, 0))
+      & not submitted_task(_) & not collecting(_, _, _)
       & not collected_block(_)
-      & attached(AX, AY)
-    <- if (AY == -1) { DDir = n }
+      & attached(AX, AY) & (math.abs(AX) + math.abs(AY) == 1)
+    <- .abolish(norm_rotate_count(_));
+       if (AY == -1) { DDir = n }
        elif (AY == 1) { DDir = s }
        elif (AX == 1) { DDir = e }
        else { DDir = w };
        .print("[NORM] Step ", N, ": Detach excess block dir=", DDir, " (limit=", Limit, " att=", NumAtt, ")");
        .concat("detach(", DDir, ")", Act); action(Act).
 
-// --- PRE-SUBMIT: detach extra blocks if >1 attached for 1-block task ---
+// #51: bloco excedente em posição diagonal — rotacionar (max 4x, depois desiste)
++step(N)
+    : carry_limit(Limit) & .count(attached(_, _), NumAtt) & NumAtt > Limit
+      & not (pending_submit(_) & goalZone(0, 0))
+      & not submitted_task(_) & not collecting(_, _, _)
+      & not collected_block(_)
+      & attached(_, _) & norm_rotate_count(NRC) & NRC >= 4
+    <- .print("[NORM] Step ", N, ": Excess diagonal block irresolvivel apos 4 rotacoes. Prosseguindo.");
+       .abolish(norm_rotate_count(_)).
+
++step(N)
+    : carry_limit(Limit) & .count(attached(_, _), NumAtt) & NumAtt > Limit
+      & not (pending_submit(_) & goalZone(0, 0))
+      & not submitted_task(_) & not collecting(_, _, _)
+      & not collected_block(_)
+      & attached(_, _)
+    <- if (norm_rotate_count(OldNRC)) { .abolish(norm_rotate_count(_)); NRC = OldNRC + 1 }
+       else { NRC = 1 };
+       +norm_rotate_count(NRC);
+       .print("[NORM] Step ", N, ": Excess block not cardinal-adjacent, rotating (", NRC, "/4) (limit=", Limit, " att=", NumAtt, ")");
+       action("rotate(cw)").
+
+// --- PRE-SUBMIT: detach excess blocks beyond task requirement ---
+
+// 2-block: detach se > 2 attached
++step(N)
+    : pending_submit(TaskName) & not submitted_task(_)
+      & solo_mode(_) & solo_blocks_needed(2)
+      & .count(attached(_, _), NumAtt) & NumAtt > 2
+      & attached(AX, AY) & (math.abs(AX) + math.abs(AY) == 1)
+    <- if (AY == -1) { DDir = n }
+       elif (AY == 1) { DDir = s }
+       elif (AX == 1) { DDir = e }
+       else { DDir = w };
+       .print("[SUBMIT] Detach excess 2b (att=", NumAtt, ") dir=", DDir);
+       .concat("detach(", DDir, ")", Act); action(Act).
 
 +step(N)
     : pending_submit(TaskName) & not submitted_task(_)
-      & solo_mode(_) & .count(attached(_, _), NumAtt) & NumAtt > 1
-      & attached(0, -1) & attached(0, 1)
-    <- .print("[SUBMIT] Step ", N, ": Detaching extra adj block (n)");
-       action("detach(n)").
+      & solo_mode(_) & solo_blocks_needed(2)
+      & .count(attached(_, _), NumAtt) & NumAtt > 2
+      & attached(AX, AY) & (math.abs(AX) + math.abs(AY) > 1)
+    <- action("rotate(cw)").
+
+// 1-block (ou sem info): detach se > 1 attached
++step(N)
+    : pending_submit(TaskName) & not submitted_task(_)
+      & solo_mode(_) & not solo_blocks_needed(2)
+      & .count(attached(_, _), NumAtt) & NumAtt > 1
+      & attached(AX, AY) & (math.abs(AX) + math.abs(AY) == 1)
+    <- if (AY == -1) { DDir = n }
+       elif (AY == 1) { DDir = s }
+       elif (AX == 1) { DDir = e }
+       else { DDir = w };
+       .print("[SUBMIT] Detach excess 1b (att=", NumAtt, ") dir=", DDir);
+       .concat("detach(", DDir, ")", Act); action(Act).
 
 +step(N)
     : pending_submit(TaskName) & not submitted_task(_)
-      & solo_mode(_) & .count(attached(_, _), NumAtt) & NumAtt > 1
-      & attached(1, 0) & attached(-1, 0)
-    <- .print("[SUBMIT] Step ", N, ": Detaching extra adj block (w)");
-       action("detach(w)").
-
-+step(N)
-    : pending_submit(TaskName) & not submitted_task(_)
-      & solo_mode(_) & .count(attached(_, _), NumAtt) & NumAtt > 1
+      & solo_mode(_) & not solo_blocks_needed(2)
+      & .count(attached(_, _), NumAtt) & NumAtt > 1
       & attached(AX, AY) & (math.abs(AX) + math.abs(AY) > 1)
     <- action("rotate(cw)").
 
 // --- SELF-ASSIGN: idle agents pick up tasks autonomously ---
+// Aceita tasks de 1 ou 2 blocos. Para 2 blocos, coleta sequencialmente.
+// Guard: requer pelo menos 1 goal zone conhecida.
 
+// 1-block tasks
 +step(N)
-    : (N mod 7) == 4
+    : (N mod 5) == 3
       & not my_active_task(_, _) & not collecting(_, _, _)
       & not pending_submit(_) & not submitted_task(_)
       & not needs_clear_blocks(_) & not searching_dispenser(_)
       & not navigating_to_meeting_point(_) & not navigating_to_meeting_for_connect(_, _, _)
       & not waiting_connect_collector(_) & not waiting_connect_result(_, _)
       & not pending_connect(_, _, _, _) & not ready_to_connect(_, _, _, _)
+      & not partner_role(_, _) & not awaiting_partner(_, _, _, _, _, _)
       & my_pos(MX, MY) & step(CS)
       & known_task(TN, TD, _, 1) & TD - CS > 40
       & task_req(TN, _, _, BType)
-    <- .my_name(Me);
-       mark_busy(Me);
-       .abolish(collecting(_, _, _));
-       .abolish(has_destination(_, _));
-       .abolish(waiting_request(_, _));
-       .abolish(waiting_attach_result(_, _));
-       .abolish(collected_block(_));
-       .abolish(solo_mode(_));
-       .abolish(solo_block_type(_));
-       .abolish(request_retries(_, _));
-       .abolish(task_accepted_step(_, _));
-       .abolish(my_task_deadline(_, _));
-       .abolish(searching_dispenser(_));
-       +my_task_deadline(TN, TD);
-       +my_active_task(TN, "solo");
-       +solo_mode(TN);
-       +solo_block_type(BType);
-       +task_accepted_step(TN, CS);
-       .print("[SELF] Step ", N, ": Auto-assigned ", TN, " type=", BType, " dl=", TD);
-       if (attached(_, _)) {
-           +needs_clear_blocks(BType);
+      & not need_role_adoption
+    <- !try_self_assign(TN, TD, BType, 1, N, CS, MX, MY).
+
+// 2-block tasks (quando não há 1-block)
++step(N)
+    : (N mod 5) == 3
+      & not my_active_task(_, _) & not collecting(_, _, _)
+      & not pending_submit(_) & not submitted_task(_)
+      & not needs_clear_blocks(_) & not searching_dispenser(_)
+      & not navigating_to_meeting_point(_) & not navigating_to_meeting_for_connect(_, _, _)
+      & not waiting_connect_collector(_) & not waiting_connect_result(_, _)
+      & not pending_connect(_, _, _, _) & not ready_to_connect(_, _, _, _)
+      & not partner_role(_, _) & not awaiting_partner(_, _, _, _, _, _)
+      & my_pos(MX, MY) & step(CS)
+      & known_task(TN, TD, _, 2) & TD - CS > 80
+      & task_req(TN, _, _, BType)
+      & not need_role_adoption
+    <- .findall(req(RX,RY,RT), task_req(TN, RX, RY, RT), AllReqs);
+       if (.length(AllReqs, AL) & AL >= 1) {
+           .nth(0, AllReqs, req(_, _, FirstBT));
+           !try_self_assign(TN, TD, FirstBT, 2, N, CS, MX, MY, AllReqs)
+       } else {
+           !try_self_assign(TN, TD, BType, 2, N, CS, MX, MY, AllReqs)
+       }.
+
++!try_self_assign(TN, TD, BType, NBlocks, N, CS, MX, MY)
+    <- !try_self_assign(TN, TD, BType, NBlocks, N, CS, MX, MY, []).
+
++!try_self_assign(TN, TD, BType, NBlocks, N, CS, MX, MY, SavedReqs)
+    <- get_nearest_goal_zone(MX, MY, GZX, GZY);
+       if (GZX == -1) {
            action("skip")
        } else {
-           !collect_block(BType)
+           .my_name(Me);
+           mark_busy(Me);
+           .abolish(collecting(_, _, _));
+           .abolish(has_destination(_, _));
+           .abolish(waiting_request(_, _));
+           .abolish(waiting_attach_result(_, _));
+           .abolish(collected_block(_));
+           .abolish(solo_mode(_));
+           .abolish(solo_block_type(_));
+           .abolish(solo_blocks_needed(_));
+           .abolish(solo_blocks_collected(_));
+           .abolish(request_retries(_, _));
+           .abolish(task_accepted_step(_, _));
+           .abolish(my_task_deadline(_, _));
+           .abolish(searching_dispenser(_));
+           .abolish(solo_saved_req(_, _, _));
+           +my_task_deadline(TN, TD);
+           +my_active_task(TN, "solo");
+           +solo_mode(TN);
+           +solo_block_type(BType);
+           +solo_blocks_needed(NBlocks);
+           +solo_blocks_collected(0);
+           +task_accepted_step(TN, CS);
+           for (.member(req(SRX, SRY, SRT), SavedReqs)) {
+               +solo_saved_req(SRX, SRY, SRT)
+           };
+           .print("[SELF] Step ", N, ": Auto-assigned ", TN, " type=", BType, " blocks=", NBlocks, " dl=", TD, " goalzone=(", GZX, ",", GZY, ")");
+           if (attached(_, _)) {
+               +needs_clear_blocks(BType);
+               action("skip")
+           } else {
+               !collect_block(BType)
+           }
        }.
+-!try_self_assign(_, _, _, _, _, _, _, _, _) <- action("skip").
+-!try_self_assign(_, _, _, _, _, _, _, _) <- action("skip").
 
 // --- SUBMIT: pending_submit e na goal zone ---
 
@@ -154,8 +428,24 @@
        .abolish(waiting_attach_result(_, _));
        .abolish(request_retries(_, _));
        .abolish(task_accepted_step(_, _));
+       .abolish(solo_blocks_collected(_));
+       +solo_blocks_collected(0);
        +task_accepted_step(TaskName, N);
-       !collect_block(BType);
+       // Para 2-block, re-coletar o tipo do primeiro bloco (task_req(TN, 0, 1, _))
+       if (solo_blocks_needed(2)) {
+           .findall(req(RX,RY,RT), task_req(TaskName, RX, RY, RT), Reqs);
+           if (.length(Reqs, NR) & NR >= 2) {
+               .nth(0, Reqs, req(R0X, R0Y, R0T));
+               .nth(1, Reqs, req(R1X, R1Y, R1T));
+               if (R0X == 0 & R0Y == 1) { FirstType = R0T }
+               else { FirstType = R1T };
+               .abolish(solo_block_type(_));
+               +solo_block_type(FirstType);
+               !collect_block(FirstType)
+           } else { !collect_block(BType) }
+       } else {
+           !collect_block(BType)
+       };
        action("skip").
 
 +step(N)
@@ -171,7 +461,37 @@
        !finalize_task(TaskName);
        action("skip").
 
-// --- SUBMIT RESULT: falha → rotacionar e re-tentar (até 3x) ---
+// --- SUBMIT RESULT: falha → verificar alinhamento antes de rotacionar ---
+
+// #52: bloco já alinhado e submit falhou ≥2x → não é problema de rotação
+// (causa provavel: task expirada, goal zone errada, ou task já submetida por outro agente)
++step(N)
+    : submitted_task(TaskName) & lastAction(submit) & lastActionResult(failed)
+      & block_already_aligned(TaskName)
+      & submit_rotate_count(TaskName, RC) & RC >= 1
+    <- .findall(att(AX,AY), attached(AX,AY), AttList);
+       .findall(treq(RX,RY,RT), task_req(TaskName, RX, RY, RT), ReqList);
+       .print("[SUBMIT] Step ", N, ": submit(", TaskName, ") falhou com bloco alinhado ", AttList, " == ", ReqList, ". Causa nao-rotacional. Finalizando.");
+       .concat("{\"task\":\"", TaskName, "\",\"result\":\"failed_aligned\"}", SFJson);
+       !dash_log("submit_fail", SFJson);
+       -submitted_task(TaskName);
+       .abolish(submit_rotate_count(TaskName, _));
+       .abolish(submit_reposition_count(TaskName, _));
+       !finalize_task(TaskName);
+       action("skip").
+
+// #52: bloco alinhado, primeira falha → re-tentar 1x sem rotacionar
++step(N)
+    : submitted_task(TaskName) & lastAction(submit) & lastActionResult(failed)
+      & block_already_aligned(TaskName)
+    <- .print("[SUBMIT] Step ", N, ": submit(", TaskName, ") falhou com bloco alinhado — re-tentando sem rotação.");
+       -submitted_task(TaskName);
+       .abolish(submit_rotate_count(TaskName, _));
+       +submit_rotate_count(TaskName, 1);
+       +pending_submit(TaskName);
+       action("skip").
+
+// --- SUBMIT RESULT: falha → rotacionar e re-tentar (até 4x, bloco NÃO alinhado) ---
 
 +step(N)
     : submitted_task(TaskName) & lastAction(submit) & lastActionResult(failed)
@@ -460,11 +780,8 @@
        +waiting_connect_collector(AsmName);
        .print("[CONNECT] Step ", N, ": Collector connect(", AsmName, ",", AX, ",", AY, ")").
 
-// FIXME Fase D (#2, cross-frame): AsmX,AsmY vem do connect_request no frame do
-// ASSEMBLER; MX,MY e o frame do collector (origens distintas pre-fusao). CDX/CDY
-// abaixo mistura frames -> navegacao ao ponto de connect fica incorreta no oficial.
-// Mesmo problema dos sites ja marcados (communication.asl, squad_leader.asl). A U9
-// (frame compartilhado) resolve; ate la, vale connect so por adjacencia percebida.
+// U9: AsmX,AsmY agora sao traduzidos para o frame do collector no
+// momento da recepcao (communication.asl) via known_offset.
 +step(N)
     : pending_connect(AsmName, AsmX, AsmY, TS) & my_pos(MX, MY)
     <- CDX = AsmX - MX; CDY = AsmY - MY;
