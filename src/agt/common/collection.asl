@@ -219,7 +219,11 @@
        get_nearest_dispenser(MX, MY, Type, NDX, NDY);
        if (NDX \== -1) {
            MDist = math.abs(NDX - MX) + math.abs(NDY - MY);
-           if (MDist <= 6) {
+           if (MDist == 0) {
+               .print("[COL] Step ", N, ": Dispenser ", Type, " no mapa em pos atual mas nao visivel. Explorando.");
+               +collecting(Type, 0, 0);
+               !do_explore(MX, MY)
+           } elif (MDist <= 6) {
                .print("[COL] Step ", N, ": Recalc dispenser ", Type, " (", NDX, ",", NDY, ") dist=", MDist);
                +collecting(Type, NDX, NDY);
                +has_destination(NDX, NDY)
@@ -246,7 +250,7 @@
            get_nearest_dispenser(MX, MY, Type, DX, DY);
            if (DX \== -1) {
                MDist = math.abs(DX - MX) + math.abs(DY - MY);
-               if (MDist <= 6) {
+               if (MDist > 0 & MDist <= 6) {
                    .print("[COL] Step ", N, ": Dispenser ", Type, " em (", DX, ",", DY, ") d=", MDist, ". Nav.");
                    .abolish(collecting(_, _, _));
                    +collecting(Type, DX, DY);
@@ -256,6 +260,19 @@
                }
            }
        };
+       !do_explore(MX, MY).
+
+// --- ARRIVED AT DESTINATION: chegou mas dispenser nao visivel → explorar ---
+
++step(N)
+    : collecting(Type, _, _) & my_pos(MX, MY)
+      & not waiting_request(_, _) & not waiting_attach_result(_, _)
+      & not need_role_adoption
+      & has_destination(DX, DY) & DX == MX & DY == MY
+      & not thing(0, 0, dispenser, Type)
+    <- .print("[COL] Step ", N, ": Chegou em (", DX, ",", DY, ") mas dispenser ", Type, " nao visivel. Explorando.");
+       .abolish(has_destination(_, _));
+       .abolish(collect_nav_start(_));
        !do_explore(MX, MY).
 
 +step(N)
@@ -291,7 +308,11 @@
        get_nearest_dispenser(MX, MY, Type, DX, DY);
        if (DX \== -1) {
            MDist = math.abs(DX - MX) + math.abs(DY - MY);
-           if (MDist <= 6) {
+           if (MDist == 0) {
+               .print("[COL] Dispenser ", Type, " no mapa em pos atual. Explorando para adjacente.");
+               +collecting(Type, 0, 0);
+               !do_explore(MX, MY)
+           } elif (MDist <= 6) {
                .print("[COL] Dispenser ", Type, " em (", DX, ",", DY, ") d=", MDist, ". Nav.");
                +collecting(Type, DX, DY);
                +has_destination(DX, DY)

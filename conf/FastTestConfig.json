@@ -9,14 +9,14 @@
     "resultPath" : "results",
     "logLevel" : "normal",
     "logPath" : "logs",
-    "replayPath" : "replays",
+    "replayPath" : "",
     "maxPacketLength" : 65536,
     "waitBetweenSimulations" : 5000
   },
 
   "match" : [
     {
-      "steps" : 100,
+      "steps" : 400,
       "randomSeed" : 17,
       "randomFail" : 1,
       "entities" : {"standard" : 20},
@@ -62,7 +62,7 @@
       "dispensers" : [3, 5],
 
       "tasks" : {
-        "size" : [1, 2],
+        "size" : [1, 1],
         "concurrent" : 4,
         "iterations" : [5, 8],
         "maxDuration" : [200, 400]

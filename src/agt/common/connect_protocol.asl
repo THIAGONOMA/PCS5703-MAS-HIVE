@@ -60,6 +60,14 @@ block_already_aligned(TaskName) :-
            }
        }.
 
+// --- MULTI-BLOCK: timeout para awaiting_partner (30 steps) ---
++step(N)
+    : awaiting_partner(TaskName, _, _, _, _, _) & solo_mode(TaskName)
+      & task_accepted_step(TaskName, AccStep) & (N - AccStep > 50)
+    <- .print("[MULTI] Step ", N, ": Timeout aguardando parceiro para ", TaskName, ". Submit solo.");
+       .abolish(awaiting_partner(_, _, _, _, _, _));
+       +pending_submit(TaskName).
+
 // --- PARCEIRO: aceitar pedido de recrutamento ---
 +need_partner(SubmitterName, TaskName, BlockType, GZX, GZY, B2X, B2Y)[source(S)]
     : not my_active_task(_, _) & not collecting(_, _, _)
@@ -230,15 +238,16 @@ block_already_aligned(TaskName) :-
        .print("[NORM] Step ", N, ": Detach excess block dir=", DDir, " (limit=", Limit, " att=", NumAtt, ")");
        .concat("detach(", DDir, ")", Act); action(Act).
 
-// #51: bloco excedente em posição diagonal — rotacionar (max 4x, depois desiste)
+// #51: bloco excedente em posição diagonal — rotacionar (max 4x, depois detach forçado)
 +step(N)
     : carry_limit(Limit) & .count(attached(_, _), NumAtt) & NumAtt > Limit
       & not (pending_submit(_) & goalZone(0, 0))
       & not submitted_task(_) & not collecting(_, _, _)
       & not collected_block(_)
       & attached(_, _) & norm_rotate_count(NRC) & NRC >= 4
-    <- .print("[NORM] Step ", N, ": Excess diagonal block irresolvivel apos 4 rotacoes. Prosseguindo.");
-       .abolish(norm_rotate_count(_)).
+    <- .print("[NORM] Step ", N, ": Excess diagonal block irresolvivel. Forcando clear_blocks.");
+       .abolish(norm_rotate_count(_));
+       +needs_clear_blocks(any).
 
 +step(N)
     : carry_limit(Limit) & .count(attached(_, _), NumAtt) & NumAtt > Limit

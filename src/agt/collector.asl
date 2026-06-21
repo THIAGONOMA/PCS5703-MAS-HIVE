@@ -197,6 +197,10 @@ my_role_type(collector).
        .abolish(awaiting_partner(_, _, _, _, _, _));
        .abolish(confirmed_partner(_, _));
        .abolish(do_connect_with_partner(_, _));
+       .abolish(collected_block(_));
+       .abolish(waiting_request(_, _));
+       .abolish(waiting_attach_result(_, _));
+       .abolish(request_retries(_, _));
        .concat("{\"task\":\"", TaskName, "\"}", FJson);
        !dash_log("task_finalized", FJson);
        !dash_task_phase(TaskName, "done", 100);
