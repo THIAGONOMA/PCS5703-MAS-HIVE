@@ -14,7 +14,14 @@ bin/main/
 # Docs privados / paper
 doc/5703_ex02_26.pdf
 doc/Analise Trabalho Mapc Jacamo Pcs5703.pdf
-doc/paper/
+
+# LaTeX build artifacts
+doc/paper/*.aux
+doc/paper/*.log
+doc/paper/*.fls
+doc/paper/*.fdb_latexmk
+doc/paper/*.out
+doc/paper/*.synctex.gz
 
 # Plans
 plan/
