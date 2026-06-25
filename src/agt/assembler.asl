@@ -1,3 +1,14 @@
+// ============================================================
+// assembler.asl — Agente Assembler
+// ------------------------------------------------------------
+// Especialista na montagem multi-bloco: coleta o 1º bloco, navega ao
+// meeting point e executa o connect com o collector para formar a
+// estrutura, submetendo a tarefa na goal zone. Quando ocioso, também
+// atua como soloist (soloist_task / self-assign). A mecânica de connect
+// e submit vem de connect_protocol.asl; aqui ficam os planos do papel.
+// ============================================================
+
+// Módulos comuns (ordem = prioridade de seleção de planos):
 { include("common/perception.asl") }
 { include("common/shared_map_init.asl") }
 { include("$jacamo/templates/common-cartago.asl") }
@@ -15,6 +26,7 @@ my_role_type(assembler).
 
 !start.
 
+// Inicialização: cria/foca os artefatos e conecta ao MASSim via EIS.
 +!start
     <- .my_name(Me);
        .print("[ASSEMBLER] ", Me, " iniciado.");

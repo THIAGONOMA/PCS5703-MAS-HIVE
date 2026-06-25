@@ -1,5 +1,21 @@
 package connection;
 
+// ============================================================
+// EISAccess.java — Artefato CArtAgO que faz a ponte com o MASSim
+// ------------------------------------------------------------
+// Cada agente Jason cria (foca) uma instância deste artefato. Ele:
+//   1) Abre UMA conexão EIS compartilhada com o servidor (sharedEI),
+//      registra o agente e associa a entidade correspondente;
+//   2) Em loop interno (updatePercepts), busca as percepções do step
+//      atual e as expõe como observable properties -> viram crenças;
+//   3) Recebe ações do agente (action/1) e as envia ao servidor.
+//
+// Suporte a POSIÇÃO RELATIVA (dead-reckoning, cenário oficial com
+// absolutePosition:false): como o servidor não informa a posição
+// absoluta, integramos cada move bem-sucedido num deslocamento
+// acumulado (drX,drY) e o publicamos como a crença dr_pos(X,Y).
+// ============================================================
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -23,23 +39,27 @@ import massim.eismassim.EnvironmentInterface;
 
 public class EISAccess extends Artifact implements AgentListener {
 
+    // Conexão EIS única, compartilhada por todos os agentes do processo.
     private static EnvironmentInterface sharedEI;
     private static boolean eisStarted = false;
-    private static final Object lock = new Object();
+    private static final Object lock = new Object();   // guarda a inicialização única
 
-    private String agName = "";
-    private boolean receiving = false;
-    private int awaitTime = 500;
-    private String lastStep = "-1";
-    private List<ObsProperty> lastRoundProperties = new ArrayList<>();
+    private String agName = "";                 // nome da entidade/agente (ex.: connectionA1)
+    private boolean receiving = false;          // controla o loop de percepção
+    private int awaitTime = 500;                // pausa (ms) entre tentativas de leitura
+    private String lastStep = "-1";             // último step processado (evita reprocessar)
+    private List<ObsProperty> lastRoundProperties = new ArrayList<>(); // props do step atual
 
+    // Estado acumulado das percepções (modelo add/delete do EIS).
     private Set<String> currentPerceptKeys = new LinkedHashSet<>();
     private List<Percept> currentPercepts = new ArrayList<>();
     private boolean firstStep = true;
 
+    // Dead-reckoning: deslocamento relativo acumulado e direção do
+    // último move pendente de confirmação (validado pelo lastActionResult).
     private int drX = 0, drY = 0;
     private String pendingMoveDir = null;
-    private boolean hasPosition = false;
+    private boolean hasPosition = false;        // true se o servidor enviar position (modo absoluto)
 
     private static final Set<String> SIM_START_PERCEPTS = new HashSet<>();
     static {
@@ -51,6 +71,8 @@ public class EISAccess extends Artifact implements AgentListener {
         SIM_START_PERCEPTS.add("teamSize");
     }
 
+    // Inicialização do artefato: sobe a conexão EIS (uma vez), registra
+    // este agente e dispara o loop interno de percepção.
     void init(String conf, String entityName) {
         this.agName = entityName;
         System.out.println("[EISAccess] init called for agent: " + entityName + " conf: " + conf);
@@ -96,6 +118,9 @@ public class EISAccess extends Artifact implements AgentListener {
         return p.toProlog();
     }
 
+    // Loop interno (roda em thread própria do CArtAgO): a cada novo step,
+    // sincroniza o conjunto de percepções (aplica delete/add), atualiza o
+    // dead-reckoning e republica todas as percepções como obs. properties.
     @INTERNAL_OPERATION
     void updatePercepts() {
         while (this.receiving) {
@@ -208,10 +233,13 @@ public class EISAccess extends Artifact implements AgentListener {
         this.lastRoundProperties.clear();
     }
 
+    // Operação chamada pelos planos Jason (action("move(n)") etc.).
+    // Converte o literal em ação EIS e a envia ao servidor, com algumas
+    // tentativas para contornar uma condição de corrida do EISMASSim.
     @OPERATION
     void action(String action) {
         Literal literal = Literal.parseLiteral(action);
-        // Track move direction for DR
+        // Registra a direção do move para o dead-reckoning (confirmado depois)
         if (action.startsWith("move(")) {
             String dir = action.substring(5, action.length() - 1);
             if (dir.equals("n") || dir.equals("s") || dir.equals("e") || dir.equals("w")) {

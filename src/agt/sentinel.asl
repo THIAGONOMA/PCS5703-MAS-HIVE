@@ -1,19 +1,33 @@
-{ include("common/perception.asl") }
-{ include("common/shared_map_init.asl") }
+// ============================================================
+// sentinel.asl — Agente Sentinel (soloist híbrido)
+// ------------------------------------------------------------
+// O sentinel não pertence a um squad fixo: opera como soloist
+// autônomo do pool universal. Coleta e submete tarefas de 1 bloco
+// por conta própria (via self-assign do connect_protocol) e também
+// aceita soloist_task delegadas por um líder. Toda a lógica comum
+// (percepção, navegação, coleta, connect, adoção de papel) vem dos
+// módulos incluídos abaixo; aqui ficam apenas os planos específicos.
+// ============================================================
+
+// Módulos comuns compartilhados por todos os papéis (ordem = prioridade):
+{ include("common/perception.asl") }       // traduz percepções em crenças
+{ include("common/shared_map_init.asl") }  // cria/foca o SharedMap
 { include("$jacamo/templates/common-cartago.asl") }
 { include("$jacamo/templates/common-moise.asl") }
-{ include("common/organization.asl") }
-{ include("common/dashboard_hooks.asl") }
-{ include("common/map_merge.asl") }
-{ include("common/role_adoption.asl") }
-{ include("common/connect_protocol.asl") }
-{ include("common/collection.asl") }
-{ include("common/navigation.asl") }
+{ include("common/organization.asl") }     // adesão à organização MOISE+
+{ include("common/dashboard_hooks.asl") }  // telemetria opcional
+{ include("common/map_merge.asl") }        // fusão de mapas (modo relativo)
+{ include("common/role_adoption.asl") }    // adoção de 'worker' (cenário oficial)
+{ include("common/connect_protocol.asl") } // submit, normas, connect, self-assign
+{ include("common/collection.asl") }       // ciclo de coleta de blocos
+{ include("common/navigation.asl") }       // A*/greedy + exploração
 
 my_role_type(sentinel).
 
 !start.
 
+// Inicialização: cria/foca os artefatos compartilhados e abre a
+// conexão EIS (EISAccess) com o servidor MASSim.
 +!start
     <- .my_name(Me);
        .print("[SENTINEL] ", Me, " iniciado.");
@@ -48,7 +62,10 @@ my_role_type(sentinel).
 +team(T)  <- -my_team(_); +my_team(T); .print("[SENTINEL] SIM-START: time = ", T).
 +steps(S) <- .print("[SENTINEL] SIM-START: steps = ", S).
 
-// --- SOLOIST TASK: recebida do leader via pool ---
+// --- SOLOIST TASK: delegada por um líder via pool ---
+// Se estiver livre, assume a tarefa: marca-se ocupado, limpa qualquer
+// estado anterior e inicia a coleta do bloco (ou limpa blocos presos
+// antes, se já houver algo acoplado).
 
 +soloist_task(TaskName, BlockType, Deadline)[source(S)]
     : not my_active_task(_, _) & step(CurStep)
@@ -97,7 +114,9 @@ my_role_type(sentinel).
            .print("[SENTINEL] Nenhuma goal zone conhecida. pending_submit ativo.")
        }.
 
-// --- Finalizar task e liberar no pool ---
+// --- Finalizar task e voltar ao pool ---
+// Libera o agente (mark_free), conclui a tarefa no TaskBoard e zera
+// todas as crenças de estado para um próximo ciclo limpo.
 
 +!finalize_task(TaskName)
     <- .my_name(Me);

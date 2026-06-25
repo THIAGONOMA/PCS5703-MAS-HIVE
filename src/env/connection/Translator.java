@@ -1,5 +1,18 @@
 package connection;
 
+// ============================================================
+// Translator.java — Conversão bidirecional EIS <-> Jason
+// ------------------------------------------------------------
+// O servidor MASSim fala o "EIS Interface Intermediate Language"
+// (IILang): percepções chegam como objetos Percept/Parameter e as
+// ações dos agentes precisam virar objetos Action/Parameter.
+// Jason, por outro lado, trabalha com termos lógicos (Literal/Term).
+// Esta classe traduz nos dois sentidos:
+//   - perceptToLiteral / parameterToTerm : EIS  -> crenças Jason
+//   - literalToAction  / termToParameter : Jason -> ação EIS
+// É puramente utilitária (métodos estáticos), sem estado.
+// ============================================================
+
 import jason.JasonException;
 import jason.NoValueException;
 import jason.asSyntax.ASSyntax;
@@ -23,6 +36,8 @@ import eis.iilang.Percept;
 
 public class Translator {
 
+    // Percept do MASSim -> Literal Jason. O nome do percept vira o
+    // functor e cada parâmetro vira um termo (recursivamente).
     public static Literal perceptToLiteral(Percept per) throws JasonException {
         Literal l = ASSyntax.createLiteral(per.getName());
         for (Parameter par : per.getParameters())
@@ -30,6 +45,7 @@ public class Translator {
         return l;
     }
 
+    // Literal Jason (ex.: move(n)) -> Action EIS enviada ao servidor.
     public static Action literalToAction(Literal action) throws NoValueException {
         Parameter[] pars = new Parameter[action.getArity()];
         for (int i = 0; i < action.getArity(); i++)
@@ -37,6 +53,8 @@ public class Translator {
         return new Action(action.getFunctor(), pars);
     }
 
+    // Termo Jason -> Parameter EIS. Trata os tipos de termo um a um:
+    // número (inteiro vs. real), lista, string, literal composto/átomo.
     public static Parameter termToParameter(Term t) throws NoValueException {
         if (t.isNumeric()) {
             double d = ((NumberTerm) t).solve();
@@ -64,6 +82,9 @@ public class Translator {
         }
     }
 
+    // Parameter EIS -> Termo Jason (caminho inverso de termToParameter).
+    // Identificadores são reparseados como termo quando possível (para
+    // recuperar estruturas), caindo para string se não for parseável.
     public static Term parameterToTerm(Parameter par) {
         if (par instanceof Numeral) {
             double d = ((Numeral) par).getValue().doubleValue();

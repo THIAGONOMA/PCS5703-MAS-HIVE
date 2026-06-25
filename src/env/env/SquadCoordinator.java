@@ -1,21 +1,36 @@
 package env;
 
+// ============================================================
+// SquadCoordinator.java — Artefato CArtAgO de coordenação de squads
+// ------------------------------------------------------------
+// Onde o conceito de "esquadrão" do HIVE é realizado em tempo de
+// execução (o MOISE+ usa estrutura achatada). Mantém:
+//   - a composição dos 4 squads e o papel de cada agente;
+//   - o "pool universal de soloists" (soloistBusy): quem está livre
+//     pode pegar qualquer tarefa, independentemente do papel;
+//   - meeting points, prontidão (signal_ready/all_ready) e atribuição
+//     de blocos para a coordenação multi-bloco (connect);
+//   - a seleção do soloist livre mais próximo de um dispenser
+//     (find_free_soloist), usando distância toroidal.
+// Estado em ConcurrentHashMap pois é acessado por vários agentes.
+// ============================================================
+
 import cartago.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class SquadCoordinator extends Artifact {
 
-    ConcurrentHashMap<String, String> agentSquad;          // package-private p/ teste (backfill Track 1)
-    ConcurrentHashMap<String, List<String>> squadMembers;
-    ConcurrentHashMap<String, String> squadRole;
-    private ConcurrentHashMap<String, int[]> meetingPoints;
-    private ConcurrentHashMap<String, Set<String>> readyAgents;
-    private ConcurrentHashMap<String, String> collectorAssignments;
-    private ConcurrentHashMap<String, String> squadActiveTask;
-    ConcurrentHashMap<String, Boolean> soloistBusy;
-    ConcurrentHashMap<String, int[]> agentPositions;
-    private ConcurrentHashMap<String, java.util.Set<String>> taskSoloist;
+    ConcurrentHashMap<String, String> agentSquad;          // agente -> id do squad
+    ConcurrentHashMap<String, List<String>> squadMembers;  // squad  -> membros
+    ConcurrentHashMap<String, String> squadRole;           // agente -> papel (leader/collector/...)
+    private ConcurrentHashMap<String, int[]> meetingPoints;        // squad -> ponto de encontro (x,y)
+    private ConcurrentHashMap<String, Set<String>> readyAgents;    // squad -> agentes prontos p/ connect
+    private ConcurrentHashMap<String, String> collectorAssignments;// agente -> tipo de bloco atribuído
+    private ConcurrentHashMap<String, String> squadActiveTask;     // squad -> tarefa ativa
+    ConcurrentHashMap<String, Boolean> soloistBusy;        // agente -> ocupado? (pool de soloists)
+    ConcurrentHashMap<String, int[]> agentPositions;       // agente -> última posição conhecida
+    private ConcurrentHashMap<String, java.util.Set<String>> taskSoloist; // tarefa -> soloists (máx. 2)
 
     void init() {
         agentSquad = new ConcurrentHashMap<>();
@@ -32,6 +47,8 @@ public class SquadCoordinator extends Artifact {
         setupDefaultSquads();
     }
 
+    // Define a composição fixa: 4 squads (1 leader + 2 collectors +
+    // 1 assembler cada) e 4 sentinels; todos entram no pool de soloists.
     private void setupDefaultSquads() {
         String[][] squads = {
             {"squad1", "connectionA1", "connectionA4", "connectionA5", "connectionA10"},
@@ -124,6 +141,10 @@ public class SquadCoordinator extends Artifact {
         leader.set("none");
     }
 
+    // --- Coordenação multi-bloco: meeting point, prontidão e blocos ---
+
+    // Define o ponto de encontro do squad (onde collector e assembler
+    // se reúnem para o connect) e avisa os membros.
     @OPERATION
     void set_meeting_point(Object osquadId, Object ox, Object oy) {
         String sid = osquadId.toString();
@@ -178,6 +199,8 @@ public class SquadCoordinator extends Artifact {
         signal("agent_ready", sid, ag);
     }
 
+    // Verdadeiro só quando todos os collectors com bloco atribuído já
+    // sinalizaram prontidão — gate para iniciar o connect sincronizado.
     @OPERATION
     void all_ready(Object osquadId, OpFeedbackParam<Boolean> result) {
         String sid = osquadId.toString();
@@ -209,21 +232,25 @@ public class SquadCoordinator extends Artifact {
         }
     }
 
+    // --- Pool universal de soloists ---
+
     @OPERATION
-    void mark_busy(Object oagName) {
+    void mark_busy(Object oagName) {            // agente assumiu uma tarefa
         soloistBusy.put(oagName.toString(), true);
     }
 
     @OPERATION
-    void mark_free(Object oagName) {
+    void mark_free(Object oagName) {            // agente voltou ao pool
         soloistBusy.put(oagName.toString(), false);
     }
 
     @OPERATION
-    void update_agent_pos(Object oagName, Object ox, Object oy) {
+    void update_agent_pos(Object oagName, Object ox, Object oy) { // cache de posição p/ seleção
         agentPositions.put(oagName.toString(), new int[]{toInt(ox), toInt(oy)});
     }
 
+    // Escolhe o soloist LIVRE mais próximo do dispenser (distância
+    // Manhattan toroidal), minimizando o tempo de coleta.
     @OPERATION
     void find_free_soloist(Object odispX, Object odispY,
                            OpFeedbackParam<String> winner) {
@@ -249,6 +276,8 @@ public class SquadCoordinator extends Artifact {
         busy.set(soloistBusy.getOrDefault(oagName.toString(), false));
     }
 
+    // Reivindica um "slot" de soloist para a tarefa (no máx. 2 agentes
+    // por tarefa, suportando coleta de 2 blocos). Retorna se conseguiu.
     @OPERATION
     void claim_task_soloist(Object otaskName, Object oagName, OpFeedbackParam<Boolean> claimed) {
         String task = otaskName.toString();

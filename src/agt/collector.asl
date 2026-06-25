@@ -1,3 +1,15 @@
+// ============================================================
+// collector.asl — Agente Collector
+// ------------------------------------------------------------
+// Especialista em coletar blocos. Atua em três modos:
+//   (1) ordem direta do líder (do_collect) na coordenação multi-bloco
+//       -> coleta e navega ao meeting point para o connect;
+//   (2) soloist_task delegada via pool -> coleta+submete sozinho;
+//   (3) self-assign (herdado de connect_protocol) quando ocioso.
+// Toda a mecânica comum vem dos módulos incluídos abaixo.
+// ============================================================
+
+// Módulos comuns (ordem = prioridade de seleção de planos):
 { include("common/perception.asl") }
 { include("common/shared_map_init.asl") }
 { include("$jacamo/templates/common-cartago.asl") }
@@ -15,6 +27,7 @@ my_role_type(collector).
 
 !start.
 
+// Inicialização: cria/foca os artefatos e conecta ao MASSim via EIS.
 +!start
     <- .my_name(Me);
        .print("[COLLECTOR] ", Me, " iniciado.");
@@ -49,7 +62,8 @@ my_role_type(collector).
 +team(T)  <- -my_team(_); +my_team(T); .print("[COLLECTOR] SIM-START: time = ", T).
 +steps(S) <- .print("[COLLECTOR] SIM-START: steps = ", S).
 
-// --- Reagir a ordem de coleta do leader (via mensagem direta) ---
+// --- (1) Ordem de coleta do líder (coordenação multi-bloco) ---
+// Limpa estado anterior, marca o bloco atribuído e inicia a coleta.
 
 +do_collect(BlockType)[source(S)]
     <- .print("[COLLECTOR] Recebi ordem de ", S, ": coletar ", BlockType);
@@ -81,7 +95,9 @@ my_role_type(collector).
            }
        }.
 
-// --- Apos coletar (multi-block ou oportunista, NAO solo) ---
+// --- Após coletar (multi-bloco/oportunista, NÃO solo) ---
+// Vai ao meeting point do squad para o connect. No modo relativo (U9),
+// traduz o meeting point do frame do líder para o frame local.
 
 +collected_block(Type)
     : not solo_mode(_)
@@ -109,7 +125,7 @@ my_role_type(collector).
            }
        }.
 
-// --- SOLOIST TASK: recebida do leader via pool ---
+// --- (2) SOLOIST TASK: delegada via pool (coleta + submete sozinho) ---
 
 +soloist_task(TaskName, BlockType, Deadline)[source(S)]
     : not my_active_task(_, _) & step(CurStep)

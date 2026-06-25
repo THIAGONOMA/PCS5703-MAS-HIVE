@@ -1,5 +1,19 @@
 package env;
 
+// ============================================================
+// HiveDashboard.java — Artefato CArtAgO de telemetria (opcional)
+// ------------------------------------------------------------
+// Expõe o estado da simulação para o dashboard web (HIVE Command
+// Center) via WebSocket (porta 8765). Os agentes chamam operações
+// como log_event, set_step, update_score, update_task_phase, etc.;
+// cada chamada atualiza o estado interno e é transmitida (broadcast)
+// em JSON aos clientes conectados. Ao conectar, um cliente recebe um
+// snapshot completo (buildSnapshot). É puramente observacional: não
+// afeta a lógica dos agentes e pode ser ignorado se o dashboard não
+// estiver em uso. Estruturas concorrentes pois várias threads de
+// agente escrevem aqui.
+// ============================================================
+
 import cartago.*;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
@@ -26,10 +40,12 @@ public class HiveDashboard extends Artifact {
     private final ConcurrentHashMap<String, JSONObject> mapDispensers = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, JSONObject> mapGoalZones = new ConcurrentHashMap<>();
 
+    // Inicialização padrão na porta 8765.
     void init() {
         init(8765);
     }
 
+    // Sobe o servidor WebSocket (daemon) que serve o dashboard.
     void init(int port) {
         currentStep = 0;
         currentScore = 0;
@@ -43,6 +59,9 @@ public class HiveDashboard extends Artifact {
         }
     }
 
+    // Registra um evento genérico (com payload JSON) e o transmite.
+    // Eventos do tipo "agent_state" também atualizam o estado do agente.
+    // Mantém no máximo 500 eventos em memória (janela deslizante).
     @OPERATION
     void log_event(Object oType, Object oAgent, Object oData) {
         String type = str(oType);
@@ -202,6 +221,7 @@ public class HiveDashboard extends Artifact {
         auctions.removeIf(a -> taskName.equals(a.optString("task")));
     }
 
+    // Monta o estado completo (snapshot) enviado a cada novo cliente.
     String buildSnapshot() {
         JSONObject snap = new JSONObject();
         snap.put("type", "snapshot");
@@ -236,6 +256,8 @@ public class HiveDashboard extends Artifact {
         try { return Integer.parseInt(o.toString()); } catch (Exception e) { return 0; }
     }
 
+    // Servidor WebSocket embutido: envia o snapshot ao conectar e
+    // repassa as mensagens de broadcast a todos os clientes abertos.
     static class DashboardWsServer extends WebSocketServer {
         private final HiveDashboard dashboard;
 

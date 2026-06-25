@@ -29,6 +29,9 @@
 +!dash_step_safe <- true.
 -!dash_step_safe <- true.
 
+// Estado do agente para o dashboard. Os planos abaixo formam uma cascata
+// do mais completo (com destino/energia/desativado) ao mais simples: o
+// Jason escolhe o 1º cujo contexto casa com as crenças disponíveis.
 +!dash_agent_state
     : my_pos(MX, MY) & my_role_type(Role) & my_energy(E) & lastAction(LA) & lastActionResult(LR) & am_deactivated & has_destination(DX, DY)
     <- .my_name(Me);

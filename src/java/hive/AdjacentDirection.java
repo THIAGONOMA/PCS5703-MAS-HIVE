@@ -1,10 +1,21 @@
 package hive;
 
+// ============================================================
+// AdjacentDirection.java — Ação interna Jason hive.adjacent_direction
+// ------------------------------------------------------------
+// Dado (agX,agY), o alvo (tX,tY) e o tamanho do grid, devolve a direção
+// cardinal (n/s/e/w) para um alvo ADJACENTE num grid toroidal, ou "none"
+// se não for adjacente. Usada na navegação fina (ex.: encostar no
+// dispenser/parceiro). A matemática de wrap toroidal (wrapDelta) é
+// reutilizada por outros artefatos. Métodos estáticos = puros/testáveis.
+// ============================================================
+
 import jason.asSemantics.*;
 import jason.asSyntax.*;
 
 public class AdjacentDirection extends DefaultInternalAction {
 
+    // Ponte AgentSpeak: lê os 4 inteiros, calcula a direção e unifica em args[4].
     @Override
     public Object execute(TransitionSystem ts, Unifier un, Term[] args)
             throws Exception {

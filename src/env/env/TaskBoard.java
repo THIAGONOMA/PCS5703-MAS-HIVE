@@ -1,16 +1,34 @@
 package env;
 
+// ============================================================
+// TaskBoard.java — Artefato CArtAgO de tarefas + leilão distribuído
+// ------------------------------------------------------------
+// Quadro compartilhado por todos os agentes. Responsável por:
+//   - registrar tarefas anunciadas pelo servidor (register_task);
+//   - sinalizar tarefas novas aos líderes (signal_task_ready ->
+//     dispara o evento new_task_available, com anti-flood);
+//   - rodar o leilão estilo Contract Net: cada líder dá um lance
+//     (place_bid) e quem chamar resolve_auction primeiro fecha o
+//     leilão escolhendo o maior lance (bestBid);
+//   - controlar o ciclo de vida (complete_task, remove_expired) e
+//     guardar os tipos de bloco de cada tarefa (multi-bloco).
+// Usa ConcurrentHashMap pois as operações de artefato podem ser
+// invocadas por agentes distintos.
+// ============================================================
+
 import cartago.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class TaskBoard extends Artifact {
 
-    private ConcurrentHashMap<String, TaskInfo> knownTasks;
-    private ConcurrentHashMap<String, List<Bid>> bids;
-    private ConcurrentHashMap<String, String> assignedTasks;
-    private ConcurrentHashMap<String, List<int[]>> taskRequirements;
+    private ConcurrentHashMap<String, TaskInfo> knownTasks;       // tarefas conhecidas por nome
+    private ConcurrentHashMap<String, List<Bid>> bids;            // lances por tarefa (leilão aberto)
+    private ConcurrentHashMap<String, String> assignedTasks;      // tarefa -> squad vencedor
+    private ConcurrentHashMap<String, List<int[]>> taskRequirements; // requisitos (reservado)
 
+    // Metadados de uma tarefa: prazo, recompensa, nº de blocos e a
+    // sequência de tipos de bloco exigidos (para coleta multi-bloco).
     static class TaskInfo {
         String name;
         int deadline, reward, nBlocks;
@@ -21,6 +39,7 @@ public class TaskBoard extends Artifact {
         }
     }
 
+    // Lance de um squad no leilão de uma tarefa (valor = score do líder).
     static class Bid {
         String squadId;
         double value;
@@ -34,8 +53,10 @@ public class TaskBoard extends Artifact {
         taskRequirements = new ConcurrentHashMap<>();
     }
 
+    // Marca o instante do último sinal de cada tarefa (anti-flood).
     private ConcurrentHashMap<String, Long> signaledTasks = new ConcurrentHashMap<>();
 
+    // Registra uma tarefa (idempotente: ignora se já existe).
     @OPERATION
     void register_task(Object oname, Object odeadline, Object oreward, Object onBlocks) {
         String name = oname.toString();
@@ -45,6 +66,8 @@ public class TaskBoard extends Artifact {
         knownTasks.putIfAbsent(name, new TaskInfo(name, deadline, reward, nBlocks));
     }
 
+    // Avisa os líderes sobre uma tarefa ainda não atribuída, no máximo
+    // uma vez a cada 2s por tarefa (evita inundar os agentes de eventos).
     @OPERATION
     void signal_task_ready(Object oname) {
         String name = oname.toString();
@@ -61,6 +84,8 @@ public class TaskBoard extends Artifact {
         }
     }
 
+    // Heurística de valor da tarefa: recompensa por bloco (favorece
+    // tarefas mais "baratas" de completar por unidade de esforço).
     @OPERATION
     void evaluate_task(Object oname, Object odeadline, Object oreward, Object onBlocks,
                        OpFeedbackParam<Double> score) {
@@ -70,6 +95,7 @@ public class TaskBoard extends Artifact {
         score.set(s);
     }
 
+    // Um líder deposita seu lance para uma tarefa.
     @OPERATION
     void place_bid(Object otaskName, Object osquadId, Object obidValue) {
         String taskName = otaskName.toString();
@@ -87,6 +113,8 @@ public class TaskBoard extends Artifact {
             .orElse(null);
     }
 
+    // Fecha o leilão: o maior lance vence, a tarefa é marcada como
+    // atribuída e os lances são descartados. O 1º líder a chamar resolve.
     @OPERATION
     void resolve_auction(Object otaskName,
                          OpFeedbackParam<String> winnerSquad) {
@@ -114,6 +142,7 @@ public class TaskBoard extends Artifact {
         signaledTasks.remove(taskName);
     }
 
+    // Remove do quadro todas as tarefas cujo deadline já passou.
     @OPERATION
     void remove_expired(Object ocurrentStep) {
         int step = toInt(ocurrentStep);
@@ -175,6 +204,7 @@ public class TaskBoard extends Artifact {
         }
     }
 
+    // Conversões auxiliares: termos Jason podem chegar como Number ou String.
     private int toInt(Object o) {
         if (o instanceof Number) return ((Number) o).intValue();
         return Integer.parseInt(o.toString());

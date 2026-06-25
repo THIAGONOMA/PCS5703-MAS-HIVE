@@ -1,3 +1,17 @@
+// ============================================================
+// squad_leader.asl — Agente Squad Leader (líder de esquadrão)
+// ------------------------------------------------------------
+// Coordena a alocação de tarefas via leilão distribuído (Contract Net):
+// ao surgir uma tarefa (new_task_available), calcula um score (função
+// de reward e distância ao dispenser), dá o lance no TaskBoard e, se
+// vencer, delega a coleta — a um soloist livre (1 bloco) ou a um par
+// collector+assembler (multi-bloco), definindo o meeting point.
+// Também monitora expiração/timeout de tarefas. Note que single-block
+// recebe peso muito maior no score (Reward*100), priorizando o que
+// pontua de forma confiável. Quando ocioso, age como soloist.
+// ============================================================
+
+// Módulos comuns (ordem = prioridade de seleção de planos):
 { include("common/perception.asl") }
 { include("common/shared_map_init.asl") }
 { include("$jacamo/templates/common-cartago.asl") }
@@ -14,6 +28,8 @@ my_role_type(squad_leader).
 
 !start.
 
+// Inicialização: cria/foca os artefatos compartilhados, conecta ao
+// MASSim via EIS e registra o squad no dashboard.
 +!start
     <- .my_name(Me);
        .print("[LEADER] ", Me, " iniciado.");
@@ -49,12 +65,16 @@ my_role_type(squad_leader).
 +team(T)  <- -my_team(_); +my_team(T); .print("[LEADER] SIM-START: time = ", T).
 +steps(S) <- .print("[LEADER] SIM-START: steps = ", S).
 
-// --- Reagir a nova task disponivel (wait 150ms to ensure +task percept is processed) ---
+// --- Reagir a nova task disponível ---
+// Pequena espera para garantir que o percept +task já foi processado,
+// e então avalia/delega a tarefa.
 
 +new_task_available(TaskName, Deadline, Reward, NBlocks)
     <- .wait(50);
        !eval_and_delegate(TaskName, Deadline, Reward, NBlocks).
 
+// Calcula o score do squad para a tarefa (Reward x distância ao
+// dispenser; single-block fortemente priorizado) e participa do leilão.
 +!eval_and_delegate(TaskName, Deadline, Reward, NBlocks)
     : step(CurrentStep) & my_pos(MX, MY)
     <- .my_name(Me);

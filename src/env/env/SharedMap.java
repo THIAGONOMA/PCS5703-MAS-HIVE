@@ -1,5 +1,21 @@
 package env;
 
+// ============================================================
+// SharedMap.java — Artefato CArtAgO do mapa compartilhado
+// ------------------------------------------------------------
+// Núcleo do ambiente do HIVE. Mantém o conhecimento do grid toroidal
+// e oferece a navegação aos agentes:
+//   - células conhecidas, visitadas, dispensers, goal zones e role
+//     zones descobertos por percepção;
+//   - obstáculos com decay temporal (expiram após N steps);
+//   - ocupação por colegas de time (para evitar colisões);
+//   - busca A* com wrapping toroidal (compute_next_move) e fallback
+//     greedy, além de exploração por fronteira (get_nearest_frontier).
+// No cenário oficial (absolutePosition:false) é instanciado por agente
+// (map_<nome>), pois cada um opera em seu próprio quadro dead-reckoned.
+// Campos package-private para permitir testes unitários (ver src/test).
+// ============================================================
+
 import cartago.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
